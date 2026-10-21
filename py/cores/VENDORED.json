@@ -1,0 +1,98 @@
+{
+  "written_by": "py/vendor_cores.sh",
+  "note": "Written by py/vendor_cores.sh. Do not edit by hand. RecQC refuses to start if a file below differs from its sha256, and tests/test_vendored.py checks each file against its source repo at the recorded commit. An entry with 'symbols' holds only those functions, lifted verbatim from source_path.",
+  "files": [
+    {
+      "path": "level_check_phrase_core.py",
+      "source_folder": "Level Check Phrase Test",
+      "source_path": "level_check_phrase_core.py",
+      "repo": "audio-level-check-phrase",
+      "commit": "e36b6513c343c44f41b83e4e877af77a83cc7ec2",
+      "sha256": "69c69ca0ba14796f0bd8598980dddf13e710cfe9cdd642520434e933957bfa13"
+    },
+    {
+      "path": "noise_profile_scanner_core.py",
+      "source_folder": "Noise Profile Scanner",
+      "source_path": "noise_profile_scanner_core.py",
+      "repo": "audio-noise-profile-scanner",
+      "commit": "3df3f51ad3f657d7db2b8fc59dce08e5b8242672",
+      "sha256": "39582dbf6a76a39d6bd3776db83cb09254fcb5135549e6fca9ec7babf9058870"
+    },
+    {
+      "path": "configs/noise/platform_band.yaml",
+      "source_folder": "Noise Profile Scanner",
+      "source_path": "configs/platform_band.yaml",
+      "repo": "audio-noise-profile-scanner",
+      "commit": "3df3f51ad3f657d7db2b8fc59dce08e5b8242672",
+      "sha256": "c77a2ef9b09b352f2151fbc5f59e725211386ffadcd8179399f1965785ab425c"
+    },
+    {
+      "path": "rt60_analyzer_core_v5.py",
+      "source_folder": "RT60 Analyzer",
+      "source_path": "rt60_analyzer_core_v5.py",
+      "repo": "audio-rt60-analyzer",
+      "commit": "44d6fb488d2df8906c8e7c78fd9a34f5af036a6a",
+      "sha256": "8f55213715fff61ea3041420d0141dc7bcf2345ac1b69bf942e922e9daf97e97"
+    },
+    {
+      "path": "configs/rt60/platform_band.yaml",
+      "source_folder": "RT60 Analyzer",
+      "source_path": "configs/platform_band.yaml",
+      "repo": "audio-rt60-analyzer",
+      "commit": "44d6fb488d2df8906c8e7c78fd9a34f5af036a6a",
+      "sha256": "dc77b6bb02544cb1561057da978b05fb9589946aeea6e15327c7fb5448b78e06"
+    },
+    {
+      "path": "configs/rt60/strict.yaml",
+      "source_folder": "RT60 Analyzer",
+      "source_path": "configs/strict.yaml",
+      "repo": "audio-rt60-analyzer",
+      "commit": "44d6fb488d2df8906c8e7c78fd9a34f5af036a6a",
+      "sha256": "3dcb134cbb798749a995d171688232b214fa43b7a195fe8129cf286ade7c0910"
+    },
+    {
+      "path": "configs/rt60/forgiving.yaml",
+      "source_folder": "RT60 Analyzer",
+      "source_path": "configs/forgiving.yaml",
+      "repo": "audio-rt60-analyzer",
+      "commit": "44d6fb488d2df8906c8e7c78fd9a34f5af036a6a",
+      "sha256": "c7e6d054b2442d3f619c15603596150ffa144a1fec523980812db83582eba63b"
+    },
+    {
+      "path": "screening_pipeline_core.py",
+      "source_folder": "Screening Pipeline",
+      "source_path": "screening_pipeline_core.py",
+      "repo": "audio-screening-pipeline",
+      "commit": "ad3fe4ae88c3cc528047e5a1cb5a6fe2767a6df8",
+      "sha256": "9386e09ec2353100d1903e8a60626a4c157315172389a3001f016abe1b961461"
+    },
+    {
+      "path": "provenance.py",
+      "source_folder": "Talent Platform",
+      "source_path": "app/provenance.py",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "sha256": "d7756ae598d9c7527e33e36a6043867c9f0baaf880379309a02f1941c74e93ff"
+    },
+    {
+      "path": "tiers.py",
+      "source_folder": "Talent Platform",
+      "source_path": "app/tiers.py",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "sha256": "0fc9a859c4de189a217b578c42532585da027b4a617440ba5ef7a8ea5a4a21a3"
+    },
+    {
+      "path": "platform_ceiling.py",
+      "source_folder": "Talent Platform",
+      "source_path": "app/audition_reviews.py",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "symbols": [
+        "_env_ceiling",
+        "_device_ceiling"
+      ],
+      "sha256": "5810d3c89e5497b333b4f46ce63aa4b70662f44ecdf05c3fe031f570ec334f4c"
+    }
+  ]
+}

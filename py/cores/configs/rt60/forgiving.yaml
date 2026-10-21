@@ -1,0 +1,24 @@
+# RT60 Analyzer — Forgiving profile
+# Use for layer-2 reconciliation, exploratory analysis, or when screening
+# a talent pool where borderline rooms still warrant human review.
+# Quality bars (measurement validity) are identical to Strict —
+# loosening policy thresholds does not loosen what counts as a valid measurement.
+
+profile_name: "Forgiving"
+
+gate:
+  reject_above:    0.80   # RT60 > 0.80s → reject
+  pass_below:      0.42   # RT60 ≤ 0.42s → pass (includes usable untreated rooms like bedrooms)
+  # 0.42s < RT60 ≤ 0.80s → borderline (proceeds to human review)
+  min_valid_claps: 3
+
+quality:
+  fit_window:    "T20"
+  r_squared_min: 0.95
+
+# advanced:
+#   clap_peak_threshold_dbfs: -20.0
+#   min_inter_clap_sec:       1.5
+#   clipping_max_linear:      0.99
+#   attack_max_ms:            3.0
+#   crest_min_db:             12.0

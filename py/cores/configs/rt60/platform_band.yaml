@@ -1,0 +1,96 @@
+# RT60 Analyzer — Platform Band profile
+#
+# The collection platform's band policy (Rick, 2026-07-28 / ruled 2026-07-30).
+# Authored as a NAMED PROFILE rather than by editing strict.yaml or DEFAULT_CONFIG:
+# those gates are shared across the platform's call sites AND the standalone tools,
+# so moving them would silently widen acceptance on real client deliveries.
+#
+# WHY IT EXISTS: a reverberant room today gets NO tier, not a low one — RT60 is a hard
+# access gate on live sessions, so past the reject line the contributor cannot record
+# at all. This profile makes a noisy/live room a LOWER TIER instead of a refusal, so
+# the noisy-audio product has something to sell.
+#
+# FOUR BANDS (this profile is the only consumer of production_below):
+#   RT60 ≤ 0.25s          → pass        (treated / purpose-built spaces)
+#   0.25s < RT60 ≤ 0.55s  → production  → tier ceiling 3 (B-Prod)
+#   0.55s < RT60 ≤ 0.90s  → borderline  → tier ceiling 2 (C-LoFi)
+#   RT60 > 0.90s          → reject      (expected rare)
+#
+# Quality bars (measurement validity) are identical to Strict and Forgiving —
+# loosening policy thresholds does not loosen what counts as a valid measurement.
+# That invariant is inherited deliberately from forgiving.yaml.
+#
+# THE DRY END (AB-7′, ruled 2026-07-30): _MIN_RT60_RESOLVABLE_SEC (0.10s) is a hardcoded
+# module constant outside the config mechanism, and it STAYS there — it is triplicated
+# across v4, v5 and the Test Package copy, so moving it would move every consumer
+# including the standalone tools. Instead `dry_room_pass` below reads that floor's
+# OUTCOME per clap. It fires at the DRY end, the opposite end from what these bands
+# widen, so the two halves of this profile are independent of each other.
+
+profile_name: "Platform Band"
+
+gate:
+  reject_above:     0.90   # RT60 > 0.90s → reject
+  production_below: 0.55   # 0.25s < RT60 ≤ 0.55s → production (fourth band; optional key)
+  pass_below:       0.25   # RT60 ≤ 0.25s → pass
+  min_valid_claps:  3
+  # AB-7′ — a room too dry to MEASURE passes as "≤0.10s, treated" instead of blocking the
+  # session, but ONLY on within-take clap agreement: at least min_valid_claps valid claps
+  # must land on below_measurement_floor with R² ≥ r_squared_min, and NO valid clap may
+  # read poor_fit / non_decaying / insufficient_decay. A genuinely dry room repeats;
+  # a processing artifact scatters, and a scattered take still returns ERROR.
+  # Optional key — absent/false is byte-identical to the old behaviour, which is why the
+  # standalone tools, strict, forgiving and the frozen demo (no config at all) do not move.
+  dry_room_pass:    true
+  # min_usable_claps: DELIBERATELY ABSENT (Rick, ruled twice 2026-08-07). Ruled in that
+  # morning (=3, hard error when the gate metric rests on fewer claps), REVOKED the same
+  # evening on the revised cost matrix: this gate is backstopped by a human reviewer, and
+  # a hard block in the admitted-noise window — where clap-T20 sits below every published
+  # reliability bar (MAD/RT60_REVERB_RESEARCH_2026-08-07.md §2) — blocks good
+  # contributors on an instrument that structurally cannot succeed there. The mechanism
+  # remains in core v5, dormant; sparse support returns as a REVIEWER FLAG in the
+  # non-blocking redesign (Talent Platform: RT60_NONBLOCKING_DESIGN_SKETCH.md).
+  # Do not re-add this key without a ruling.
+
+quality:
+  fit_window:    "T20"
+  # r_squared_min 0.95 -> 0.85 (Rick ruled 2026-08-12). PLATFORM PROFILE ONLY: strict,
+  # forgiving, the standalone tools and the frozen demo keep the 0.95 DEFAULT_CONFIG value,
+  # the same optional-key pattern as dry_room_pass (AB-7') and the fourth band.
+  #
+  # WHY. This platform is TRIAGE, not reference-grade acoustics: consumer mics, no room-mode
+  # analysis. The tier bins are 0.25 / 0.55 / 0.90 s, very wide, while 0.95 is a
+  # proper-measurement bar — on one 14-clap take the six usable claps read 0.1562-0.2369 and
+  # EVERY ONE landed in the same bin, so the instrument was far more precise than the
+  # decision it feeds. The bar was rejecting claps the physics did not warrant: of 40
+  # rejected 1 kHz fits on production, 19 sat between 0.90 and 0.95 and 34 were >= 0.80.
+  #
+  # MEASURED ON 35 REAL PRODUCTION MULTI-CLAP TAKES, not inferred (the core re-run per take
+  # at 0.95/0.90/0.85/0.80 against each take's OWN recorded noise profile):
+  #   11 takes gain usable claps      3 of 9 thin takes reach >= 3 usable
+  #   ZERO tier verdicts change       median gate-metric move 0.0000
+  #   2 of 8 no-verdict takes RESCUED (see below)
+  #
+  # THE RESCUE PATH IS AB-7', AND IT IS THE POINT. The dry-room override passes a too-dry
+  # room only when NO valid clap reads poor_fit, so ONE near-miss clap disqualifies the whole
+  # take: 705a2434 (5 valid, 4 below_measurement_floor, 1 poor_fit at r^2 0.853) and
+  # dba5d398 (9 valid, 7 below_floor, 2 poor_fit at 0.894/0.943) were both blocked outright.
+  # That second contributor clapped NINE TIMES and got nothing. Both pass at 0.85.
+  #
+  # A SINGLE-CLAP CORPUS WILL TELL YOU THIS IS UNSAFE. It did: on the 42-file REW-parity set,
+  # recovered claps had median |drift| 22.8% against 6.1% for accepted ones, and r^2 does NOT
+  # predict accuracy (0.9412 -> +44.6%, 0.9426 -> +0.9%). That corpus is the WRONG INSTRUMENT
+  # for this question -- one clap per file means the median has nothing to work with, so every
+  # recovered clap IS the answer. On real multi-clap takes the median absorbs them, which is
+  # what the 0.0000 above measures. Do not re-litigate this from the synthetic set.
+  #
+  # WHAT IT DOES NOT FIX: the 6 remaining no-verdict takes fail on CLIPPING at 0.0 dBFS or on
+  # too few claps DETECTED. Both are upstream of the fit, where r^2 is never consulted.
+  r_squared_min: 0.85
+
+# advanced:
+#   clap_peak_threshold_dbfs: -20.0
+#   min_inter_clap_sec:       1.5
+#   clipping_max_linear:      0.99
+#   attack_max_ms:            3.0
+#   crest_min_db:             12.0

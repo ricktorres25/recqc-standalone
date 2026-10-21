@@ -1,0 +1,5 @@
+# Vendored files are checked by sha256, so git must never rewrite their line endings.
+py/cores/** -text
+pyodide/** binary
+# The Pyodide manifest stays diffable (still no line-ending conversion).
+pyodide/VENDORED.json diff merge

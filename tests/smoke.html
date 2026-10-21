@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RecQC M1 smoke test</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; color: #222; background: #fff; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .note { color: #555; margin-top: 0; }
+    #status { font-family: ui-monospace, Menlo, monospace; white-space: pre-wrap; background: #f4f4f4; padding: 0.75rem; border-radius: 6px; }
+    table { border-collapse: collapse; margin: 1rem 0; width: 100%; }
+    th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.95rem; }
+    pre { background: #f4f4f4; padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+    .fail { color: #b00020; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>RecQC M1 smoke test</h1>
+  <p class="note">Boots Pyodide from the vendored <code>pyodide/</code> folder, passes the cores' start check, and runs one folder of takes you pick. No mic, nothing uploaded. Add <code>?selftest</code> to the address to run a synthetic take instead.</p>
+  <div id="status">Starting...</div>
+
+  <p>
+    Profile:
+    <select id="profile"><option value="default">core defaults</option><option value="platform_band">Platform Band</option></select>
+    &nbsp; Takes (one folder's <code>*_phrase.wav</code>, <code>*_noise.wav</code> and <code>*_clap.wav</code>):
+    <input type="file" id="takes" accept=".wav" multiple disabled>
+  </p>
+  <div id="result"></div>
+
+  <script>
+    // Chrome will not load the Python runtime from a file:// page, so say so instead of failing silently.
+    if (location.protocol === "file:") {
+      document.getElementById("status").textContent =
+        "Open this page from a server: run  python3 -m http.server 8000  in the repo folder, " +
+        "then open http://localhost:8000/tests/smoke.html";
+    }
+  </script>
+  <script type="module">
+    import { loadPyodide } from "../pyodide/pyodide.mjs";
+    import { bootRecQC } from "../app/recqc_boot.mjs";
+
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+    const log = (m) => { statusEl.textContent += "\n" + m; };
+    const base = new URL("../", import.meta.url);   // the repo root, as served
+    const readBytes = async (rel) => {
+      const r = await fetch(new URL(rel, base));
+      if (!r.ok) throw new Error(`${rel}: HTTP ${r.status}`);
+      return new Uint8Array(await r.arrayBuffer());
+    };
+
+    // Python returns JSON text; NaN and Infinity are not valid JSON, so show them as null.
+    const parse = (text) => JSON.parse(text.replace(/-?\bInfinity\b|\bNaN\b/g, "null"));
+
+    const fmt = (v, nd = 2) => (typeof v === "number" ? v.toFixed(nd) : v ?? "-");
+
+    function render(r) {
+      const rows = [
+        ["Level", r.level_gate?.[0], `true peak ${fmt(r.level?.true_peak_dbtp)} dBTP, ` +
+          `${fmt(r.level?.integrated_lufs)} LUFS, speech ${fmt(r.level?.speech_level_dba)} dBFS(A)`],
+        ["Quiet room", r.noise_gate?.[0], `SNR ${fmt(r.noise?.snr_db)} dB, ${r.noise?.disposition ?? r.noise?.error ?? "-"}`],
+        ["Room reflection", r.rt60_gate?.[0], `RT60 1 kHz ${fmt(r.rt60?.summary?.rt60_gate_metric, 3)} s, ` +
+          `${r.rt60?.disposition ?? r.rt60?.error ?? "-"}`],
+        ["Format", "", Object.entries(r.provenance ?? {}).map(([k, v]) => `${k} ${v.spectral_verdict ?? v}`).join(", ")],
+        ["Time", "", Object.entries(r.timings).map(([k, v]) => `${k} ${v.toFixed(2)} s`).join(", ")],
+      ];
+      resultEl.innerHTML = "<table><tr><th>Stage</th><th>Gate</th><th>Result</th></tr>" +
+        rows.map(([a, b, c]) => `<tr><td>${a}</td><td>${b ?? "-"}</td><td>${c}</td></tr>`).join("") +
+        "</table><details><summary>Full record</summary><pre></pre></details>";
+      resultEl.querySelector("pre").textContent = JSON.stringify(r, null, 2);
+    }
+
+    try {
+      const pyodide = await bootRecQC({
+        loadPyodide, indexURL: new URL("pyodide/", base).href, readBytes, log,
+      });
+
+      if (new URLSearchParams(location.search).has("selftest")) {
+        // A synthetic 6 s take (noise at about -30 dBFS), written inside Pyodide and run
+        // through the level core: the whole browser path, with no audio from anywhere.
+        const record = parse(pyodide.runPython(`
+import json, numpy as np, soundfile as sf
+from pathlib import Path
+from cores import level_check_phrase_core as level_core
+import recqc_runner
+rng = np.random.default_rng(7)
+x = (rng.standard_normal(6 * 48000) * 10 ** (-30 / 20)).astype("float32")
+Path("/selftest").mkdir(exist_ok=True)
+sf.write("/selftest/00000_xx_phrase.wav", x, 48000, subtype="PCM_24")
+json.dumps(recqc_runner.to_plain(level_core.scan_phrase(Path("/selftest/00000_xx_phrase.wav"), write_outputs=False)))
+`));
+        const ok = typeof record.integrated_lufs === "number" && typeof record.verdict === "string";
+        const line = ok ? `SELFTEST PASS: level core ran in the browser (${fmt(record.integrated_lufs)} LUFS, verdict ${record.verdict})`
+                        : "SELFTEST FAIL: " + JSON.stringify(record);
+        log(line);
+        document.title = line;   // a headless runner can read the result from the title
+      }
+
+      const input = document.getElementById("takes");
+      input.disabled = false;
+      input.onchange = async () => {
+        // Copy the picked files into Pyodide's in-memory file system, then run the folder.
+        const dir = `/picked/${Date.now()}`;
+        pyodide.FS.mkdirTree(dir);
+        for (const f of input.files) {
+          pyodide.FS.writeFile(`${dir}/${f.name}`, new Uint8Array(await f.arrayBuffer()));
+        }
+        const profile = document.getElementById("profile").value;
+        log(`running ${input.files.length} files under ${profile}...`);
+        try {
+          render(parse(pyodide.runPython(
+            `import json, recqc_runner\njson.dumps(recqc_runner.run_folder(${JSON.stringify(dir)}, ${JSON.stringify(profile)}))`)));
+          log("done");
+        } catch (e) {
+          resultEl.innerHTML = `<p class="fail"></p>`;
+          resultEl.querySelector("p").textContent = String(e.message ?? e).split("\n").slice(-3).join("\n");
+        }
+      };
+    } catch (e) {
+      log("FAILED: " + (e.message ?? e));
+      document.title = "SELFTEST FAIL: " + String(e.message ?? e).split("\n").slice(-2).join(" ");
+    }
+  </script>
+</body>
+</html>

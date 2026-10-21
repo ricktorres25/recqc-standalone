@@ -1,0 +1,27 @@
+# RT60 Analyzer — Strict profile
+# Use for primary production gating. Tighter RT60 threshold protects against
+# rooms that will cause audible reverb problems in training data.
+
+profile_name: "Strict"
+
+gate:
+  # Three-way disposition: pass / borderline / reject
+  # Gate metric = median 1kHz octave band RT60 across valid claps.
+  reject_above:    0.50   # RT60 > 0.50s → reject (automated hard gate)
+  pass_below:      0.25   # RT60 ≤ 0.25s → pass (treated/purpose-built spaces)
+  # 0.25s < RT60 ≤ 0.50s → borderline (proceeds to human review)
+  min_valid_claps: 3      # fewer valid claps → reject (insufficient_valid_claps)
+
+quality:
+  # These are measurement validity controls, not policy — same across profiles.
+  fit_window:    "T20"    # T20 = fit -5dB to -25dB on Schroeder curve
+  r_squared_min: 0.95     # minimum R² for a fit to be accepted; below → poor_fit / null
+
+# advanced:
+#   Override scanner constants here only when the capture protocol deviates.
+#   Defaults match the cupped-hands-at-1-1.5m protocol.
+#   clap_peak_threshold_dbfs: -20.0
+#   min_inter_clap_sec:       1.5
+#   clipping_max_linear:      0.99
+#   attack_max_ms:            3.0
+#   crest_min_db:             12.0

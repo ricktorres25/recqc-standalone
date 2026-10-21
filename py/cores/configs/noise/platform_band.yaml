@@ -1,0 +1,39 @@
+# Noise Profile Scanner — Platform Band profile
+#
+# The collection platform's band policy (Rick, 2026-07-28 / AB-1 ruled 2026-07-29).
+# Authored as a NAMED PROFILE rather than by editing DEFAULT_CONFIG: that config is
+# shared across the platform's call sites AND the standalone tools (Audio Validator,
+# Intake Scanner, the screening batch), so moving it would silently widen acceptance
+# on real client deliveries. load_config() merges this over DEFAULT_CONFIG, so only
+# the key that actually moves is stated here.
+#
+# WHY IT EXISTS: a noisy room today gets NO tier, not a low one — below the reject line
+# the take fails the stage gate outright and the contributor is unhireable for every
+# project. This profile makes a noisy room a LOWER TIER instead of a refusal.
+#
+# ONLY reject_below MOVES. 38.0 → 20.0 dB A-weighted SNR, matching the Intake Scanner's
+# retired forgiving.yaml snr.reject_below, so the figure carries prior art rather than
+# being invented. warn_below is deliberately HELD at 48.0 — DECIDED, NOT DEFERRED.
+#
+# Resulting ladder (A-weighted SNR = speech_level_dba - noise_floor_dba):
+#   SNR < 20.0        → REJECT   (stage fails; no tier. Expected rare.)
+#   20.0 ≤ SNR < 48.0 → WARN     → tier ceiling 2 (C-LoFi)
+#   48.0 ≤ SNR < 55.0 → CAUTION  → tier ceiling 3 (B-Prod)
+#   SNR ≥ 55.0        → PASS     (no cap)
+#
+# THE WIDE WARN BAND IS ACCEPTED KNOWINGLY. warn_below is the primary adjustment lever
+# as real data arrives, with two named future moves: lower warn_below, or split
+# Production into a secondary higher-effort edit bucket — which is an EFFORT-TO-CLEAN
+# axis, not an SNR one.
+#
+# LOAD-BEARING CONSTRAINT: the level check is UNCHANGED and must stay so. SNR here is
+# speech-level-relative, so the level-check pass window bounds the numerator of every
+# SNR these widened bands classify. Move the level check and these numbers stop meaning
+# what they were ruled to mean.
+
+profile_name: "Platform Band"
+config_version: "1.2-platform-band"
+
+snr:
+  reject_below: 20.0   # was 38.0 — the only threshold this profile moves
+  # warn_below / caution_below / pass_above inherit DEFAULT_CONFIG (48.0 / 55.0 / 55.0)
