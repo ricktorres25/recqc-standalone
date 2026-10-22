@@ -17,6 +17,9 @@
 #       "too live" refusal and asks for no more claps; too few claps is "unmeasured" and
 #       asks for more, and the same claps with a second take joined pass; Strict moves
 #       the same take's band; a take below 44.1 kHz and a noise yaml are refused
+#   R7  the README's two template yamls (M5): each passes RecQC's checks and, merged over
+#       its core's built-in config, is exactly the Default band (Platform Band) under
+#       its own name, so a copied template starts from the platform's policy
 #
 # Every check runs its near miss (builds:grader-negative-control) where one applies: a
 # case that differs from a passing one only in the property being checked.
@@ -27,6 +30,7 @@ import sys
 sys.dont_write_bytecode = True   # leave no __pycache__ in py/
 
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -207,6 +211,36 @@ def main():
                and bare["refusal"]["kind"] == "unmeasured" and bare["clap_collection"]["collect_more"],
                "R6 the same claps with no room tone: the tail fallback cannot measure them (unmeasured, more asked for); "
                "with it they pass, above")
+
+    # R7: the README's templates. A template is matched to its core by its section.
+    blocks = re.findall(r"```yaml\n(.*?)```", (REPO / "README.md").read_text(encoding="utf-8"), re.S)
+    result(len(blocks) == 2, f"R7 the README holds two template yamls ({len(blocks)} found)")
+    policy_keys = lambda config: {k: v for k, v in config.items() if k not in ("profile_name", "config_version")}  # noqa: E731
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        for i, text in enumerate(blocks):
+            core = "noise" if re.search(r"^snr:", text, re.M) else "rt60"
+            path = tmp / f"template_{i}.yaml"
+            path.write_text(text, encoding="utf-8")
+            problem = refused(core, path)
+            if problem:
+                result(False, f"R7 the README's {core} template is refused: {problem}")
+                continue
+            config, stamp = runner.resolve_profile(core, str(path))
+            band, _ = runner.resolve_profile(core, "platform_band")
+            name = re.search(r'^profile_name: "([^"]+)"', text, re.M).group(1)
+            result(stamp["profile_name"] == name and stamp["source"] == "yours"
+                   and policy_keys(config) == policy_keys(band),
+                   f"R7 the README's {core} template is the Default band's policy under its own name, \"{name}\"")
+            nameless = tmp / f"nameless_{i}.yaml"
+            nameless.write_text(re.sub(r"^profile_name:.*$", "", text, flags=re.M), encoding="utf-8")
+            result(refused(core, nameless) is not None, f"R7 near miss: the {core} template without profile_name is refused")
+            first = re.search(r"^  (\w+): ([0-9.]+)", text, re.M)
+            moved = tmp / f"moved_{i}.yaml"
+            moved.write_text(text.replace(first.group(0), f"  {first.group(1)}: {float(first.group(2)) + 0.01}", 1),
+                             encoding="utf-8")
+            result(policy_keys(runner.resolve_profile(core, str(moved))[0]) != policy_keys(band),
+                   f"R7 near miss: the {core} template with {first.group(1)} moved by 0.01 is not the Default band")
 
     print()
     print("RESULT: FAIL" if "FAIL" in statuses else "RESULT: PASS")
