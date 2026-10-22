@@ -1,9 +1,10 @@
 #!/bin/bash
-# vendor_cores.sh - refresh RecQC's vendored platform files under py/cores/.
+# vendor_cores.sh - refresh RecQC's vendored platform files under py/cores/ and app/.
 #
-# The ONLY way the vendored files under py/cores/ change. It copies them from the
-# sibling MAD source repos and rewrites py/cores/VENDORED.json (source folder, repo,
-# commit, sha256 per file). The pattern is MAD/Intake Scanner/vendor_cores.sh.
+# The ONLY way the vendored files under py/cores/, and the lifted app/platform_capture.mjs,
+# change. It copies them from the sibling MAD source repos and rewrites py/cores/VENDORED.json
+# and app/VENDORED.json (source folder, repo, commit, sha256 per file). The pattern is
+# MAD/Intake Scanner/vendor_cores.sh.
 #
 #   level_check_phrase_core.py        <- MAD/Level Check Phrase Test
 #   noise_profile_scanner_core.py     <- MAD/Noise Profile Scanner
@@ -14,6 +15,13 @@
 #   provenance.py, tiers.py           <- MAD/Talent Platform/app
 #   platform_ceiling.py               <- MAD/Talent Platform/app/audition_reviews.py, only
 #                                        _env_ceiling and _device_ceiling, lifted verbatim
+#   platform_ingest.py                <- MAD/Talent Platform/app/cores.py, only
+#                                        _derive_working and the four imports it uses
+#
+# and, for the page, into app/ with its own manifest app/VENDORED.json:
+#
+#   platform_capture.mjs              <- MAD/Talent Platform/app/static/index.html, only
+#                                        the six capture declarations named in JS_LIFTS
 #
 # It REFUSES, and changes nothing, when a source file is not committed at its repo's
 # HEAD or has uncommitted changes of its own. What it copies is the committed file at
@@ -33,6 +41,7 @@ HERE="$(cd "$(dirname "$0")" && pwd -P)"   # .../RecQC standalone/py
 REPO="$(dirname "$HERE")"                   # .../RecQC standalone
 MAD="$(dirname "$REPO")"                    # .../MAD, where the source repos sit
 DEST="$HERE/cores"
+APP="$REPO/app"
 PYTHON_BIN="${PYTHON_BIN:-python3}"         # _vendor_check.py is stdlib only
 
 # One line per vendored file:  path under cores/ | source folder under MAD | path in that repo
@@ -50,8 +59,16 @@ FILES=(
 )
 
 # One line per lifted file:  path under cores/ | source folder | path in that repo | function names
+#                            [| import lines from that file the functions use, ';'-separated]
 LIFTS=(
   "platform_ceiling.py|Talent Platform|app/audition_reviews.py|_env_ceiling,_device_ceiling"
+  "platform_ingest.py|Talent Platform|app/cores.py|_derive_working|from pathlib import Path;import numpy as np;import soundfile as sf;import soxr"
+)
+
+# One line per lifted JavaScript file:  path under app/ | source folder | path in that repo |
+#                                       declaration names | page variables they share
+JS_LIFTS=(
+  "platform_capture.mjs|Talent Platform|app/static/index.html|WORKLET_CODE,encodeWav24,getMicConstraints,checkMicProcessing,browserFingerprint,IS_MOBILE|procStatus,lastBrowserFingerprint,audioCtx"
 )
 
 refuse() {
@@ -69,6 +86,7 @@ src_git() {   # read-only git inside one source folder:  src_git <folder> <git a
 "$PYTHON_BIN" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2> /dev/null \
   || refuse "$PYTHON_BIN is missing or older than Python 3.10. It writes the manifest."
 [ -f "$DEST/_vendor_check.py" ] || refuse "py/cores/_vendor_check.py not found."
+command -v node > /dev/null || refuse "node not found. It checks that the lifted JavaScript parses."
 
 check_source() {   # check_source <folder> <path>: refuse unless committed at HEAD and clean
   local folder="$1" path="$2" dirty
@@ -95,12 +113,12 @@ for line in "${FILES[@]}"; do
   IFS='|' read -r dest folder path <<< "$line"
   check_source "$folder" "$path"
 done
-for line in "${LIFTS[@]}"; do
-  IFS='|' read -r dest folder path names <<< "$line"
+for line in "${LIFTS[@]}" "${JS_LIFTS[@]}"; do
+  IFS='|' read -r dest folder path names extra <<< "$line"
   check_source "$folder" "$path"
 done
 
-# --- 2. Copy the committed bytes (or lift the named functions), then write the manifest ---
+# --- 2. Copy the committed bytes (or lift the named functions), then write the manifests ---
 rows=""
 summary=""
 for line in "${FILES[@]}"; do
@@ -112,21 +130,43 @@ for line in "${FILES[@]}"; do
   summary="$summary$(printf '  %-34s <- %s @ %s' "$dest" "$folder" "${commit:0:7}")"$'\n'
 done
 for line in "${LIFTS[@]}"; do
-  IFS='|' read -r dest folder path names <<< "$line"
+  IFS='|' read -r dest folder path names imports <<< "$line"
+  # The import lines are passed only when the lift has some (an empty argument is not "none").
   src_git "$folder" cat-file blob "HEAD:$path" \
-    | "$PYTHON_BIN" -B "$DEST/_vendor_check.py" lift "$DEST/$dest" "$folder" "$path" "$names"
+    | "$PYTHON_BIN" -B "$DEST/_vendor_check.py" lift "$DEST/$dest" "$folder" "$path" "$names" \
+        ${imports:+"$imports"}
   commit="$(src_git "$folder" rev-parse HEAD)"
-  rows="$rows$dest|$folder|$path|$(repo_name "$folder")|$commit|$names"$'\n'
+  rows="$rows$dest|$folder|$path|$(repo_name "$folder")|$commit|$names${imports:+|$imports}"$'\n'
   summary="$summary$(printf '  %-34s <- %s @ %s (%s)' "$dest" "$folder" "${commit:0:7}" "$names")"$'\n'
 done
 
 printf '%s' "$rows" | "$PYTHON_BIN" -B "$DEST/_vendor_check.py" write "$DEST"
 
-# --- 3. Run the start check once, on what was just written ---
+js_rows=""
+js_summary=""
+for line in "${JS_LIFTS[@]}"; do
+  IFS='|' read -r dest folder path names shared <<< "$line"
+  src_git "$folder" cat-file blob "HEAD:$path" \
+    | "$PYTHON_BIN" -B "$DEST/_vendor_check.py" lift-js "$APP/$dest" "$folder" "$path" "$names" "$shared"
+  commit="$(src_git "$folder" rev-parse HEAD)"
+  js_rows="$js_rows$dest|$folder|$path|$(repo_name "$folder")|$commit|$names|$shared"$'\n'
+  js_summary="$js_summary$(printf '  %-34s <- %s @ %s (%s)' "$dest" "$folder" "${commit:0:7}" "$names")"$'\n'
+done
+
+printf '%s' "$js_rows" | "$PYTHON_BIN" -B "$DEST/_vendor_check.py" write-js "$APP"
+
+# --- 3. Run the start check once, on what was just written, and parse the JavaScript ---
 "$PYTHON_BIN" -B "$DEST/_vendor_check.py" check "$DEST" \
   || { echo "FAILED: the start check does not pass on the new copies." >&2; exit 1; }
+for line in "${JS_LIFTS[@]}"; do
+  IFS='|' read -r dest folder path names shared <<< "$line"
+  node --check "$APP/$dest" \
+    || { echo "FAILED: app/$dest does not parse as JavaScript." >&2; exit 1; }
+done
 
 echo "Vendored into py/cores/:"
 printf '%s' "$summary"
-echo "Wrote py/cores/VENDORED.json. Start check: OK."
-echo "Review the change with:  git diff --stat -- py/cores/"
+echo "Vendored into app/:"
+printf '%s' "$js_summary"
+echo "Wrote py/cores/VENDORED.json and app/VENDORED.json. Start check: OK. JavaScript parses."
+echo "Review the change with:  git diff --stat -- py/cores/ app/"

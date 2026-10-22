@@ -2,7 +2,7 @@
 
 A recording-chain and room check that runs in your browser, on your machine. It is the audio side of the MAD collection platform's Rec QC: a level check, a quiet-room measurement and a clap-based room-reflection measurement, scored under the platform's published policy. It prints the audio tier ceiling a take could earn, with every measurement, threshold and margin shown. Nothing is uploaded.
 
-**Status:** design stage. [DESIGN_NOTE.md](DESIGN_NOTE.md) is under review; there is no code yet.
+**Status:** in development. The level check runs: capture, the mic-processing check, the format verdict and the level, scored in the browser by the platform's cores. The quiet-room and room-reflection checks and the tier ceiling come next. [DESIGN_NOTE.md](DESIGN_NOTE.md) is the approved design.
 
 ## What it will do
 
@@ -14,7 +14,18 @@ A recording-chain and room check that runs in your browser, on your machine. It 
 
 ## Quick start
 
-To be written at M2 (first runnable milestone).
+Open <https://ricktorres25.github.io/recqc-standalone/> in Chrome, or serve this folder yourself:
+
+    python3 -m http.server 8000
+
+and open <http://localhost:8000> in Chrome. A page opened straight from the file (`file://`) cannot load the Python runtime, and says so.
+
+1. Wait for "Analysis engine ready". The first visit downloads about 32 MB (Python and the cores).
+2. Turn on the mic. Chrome asks for permission the first time.
+3. Press Record, read the phrase (or anything else) for about five seconds, and press Stop.
+4. Read the result: the mic-processing check, the format verdict and the level check, each with its numbers and reasons.
+
+Add `?debug` to the address for a "Download this take" link.
 
 ## Run modes
 

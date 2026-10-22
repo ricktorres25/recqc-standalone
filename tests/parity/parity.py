@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-# parity.py - the M1 parity test (DESIGN_NOTE.md section 3; gate 1, 2026-10-21).
+# parity.py - the parity test (DESIGN_NOTE.md section 3; M1 gate 1, 2026-10-21; M2 adds
+# the 44.1 kHz set).
 #
 # Do the vendored cores score the Testing corpus the same in Pyodide as in CPython,
 # and does CPython still reproduce the corpus's stored records?
 #
-#   P1  Pyodide (in Node) against CPython, for both profiles (the cores' defaults and
-#       Platform Band), every field of every record, with the tolerances in compare.py.
+#   P1  Pyodide (in Node) against CPython, every field of every record, with the
+#       tolerances in compare.py, for three sets: the corpus under each profile (the
+#       cores' defaults and Platform Band), and the corpus resampled to 44.1 kHz under
+#       Platform Band. The 44.1 kHz copies are made once here with scipy (not soxr), so
+#       both sides start from the same files and each derives its 48 kHz working copies
+#       with its own soxr (0.5.0.post1 in Pyodide, 1.1.0 live). The largest sample
+#       difference between the two sides' working copies is reported too.
 #   P2  CPython against the stored records in each folder's screening_result.json,
 #       defaults only (the June records used them), same tolerances. One difference is
 #       expected and listed, not counted: the live RT60 core is newer than the one that
@@ -39,6 +45,10 @@ import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+import numpy as np
+import soundfile as sf
+from scipy.signal import resample_poly
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO / "py"))
@@ -47,6 +57,12 @@ import compare  # noqa: E402
 
 DEFAULT_CORPUS = REPO.parent / "Screening Pipeline" / "Testing corpus"
 PROFILES = ("default", "platform_band")
+
+# P1's sets: name -> (profile, capture rate). A 44.1 kHz set holds every corpus take
+# resampled from 48 kHz by 147/160.
+SETS = {"default": ("default", 48000),
+        "platform_band": ("platform_band", 48000),
+        "platform_band_44k": ("platform_band", 44100)}
 STAGES = {"level": "level_check", "noise": "noise_profile", "rt60": "rt60"}
 GATES = {"level_check": "level_gate", "noise_profile": "noise_gate", "rt60": "rt60_gate"}
 
@@ -128,6 +144,39 @@ def near_misses(a_rows, b_rows):
     return ok
 
 
+def write_44k(take, dest):
+    """Write a 44.1 kHz, 24-bit copy of a 48 kHz take, clipped to the 24-bit range (the
+    filter can overshoot full scale on a hot take, and a PCM write would wrap it)."""
+    x, rate = sf.read(str(take), dtype="float64")
+    if rate != 48000:
+        raise ValueError(f"{take.name} is {rate} Hz; the 44.1 kHz set is made from 48 kHz takes")
+    y = resample_poly(x, 147, 160)
+    sf.write(str(dest), np.clip(y, -1.0, 1.0 - 2.0 ** -23), 44100, subtype="PCM_24")
+
+
+def working_copy_difference(work, name):
+    """Compare the two sides' derived working copies in one set, file by file.
+
+    Returns (largest sample difference in 24-bit steps, files compared, problems): a
+    working copy only one side made, or two of different lengths, is a problem.
+    """
+    worst, compared, problems = 0.0, 0, []
+    a_dir, b_dir = work / "cpython" / name, work / "pyodide" / name
+    a_files = {p.relative_to(a_dir) for p in a_dir.rglob("*_48k.wav")}
+    b_files = {p.relative_to(b_dir) for p in b_dir.rglob("*_48k.wav")}
+    problems += [f"only CPython made {p}" for p in sorted(a_files - b_files)]
+    problems += [f"only Pyodide made {p}" for p in sorted(b_files - a_files)]
+    for rel in sorted(a_files & b_files):
+        a, _ = sf.read(str(a_dir / rel), dtype="float64")
+        b, _ = sf.read(str(b_dir / rel), dtype="float64")
+        if len(a) != len(b):
+            problems.append(f"{rel}: {len(a)} samples (CPython) vs {len(b)} (Pyodide)")
+            continue
+        worst = max(worst, float(np.max(np.abs(a - b))) * 2 ** 23)
+        compared += 1
+    return worst, compared, problems
+
+
 def show(comp, title, limit=25):
     """Print one comparison's result; return True when it passed."""
     ok = not comp.differences
@@ -146,7 +195,7 @@ def show(comp, title, limit=25):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="M1 parity: Pyodide vs CPython vs stored records")
+    ap = argparse.ArgumentParser(description="Parity: Pyodide vs CPython vs stored records")
     ap.add_argument("corpus", nargs="?", default=str(DEFAULT_CORPUS))
     ap.add_argument("--keep", action="store_true", help="keep the work folder")
     ap.add_argument("--report", help="write the full comparison as JSON here")
@@ -187,33 +236,39 @@ def main():
 
     import recqc_runner   # importing it runs the cores' start check
 
-    # 3. Copy the takes: one folder per side and profile, so no run sees another's outputs.
+    # 3. Copy the takes: one folder per side and set, so no run sees another's outputs.
+    #    A 44.1 kHz set gets resampled copies, written once and copied to the other side.
     work = Path(tempfile.mkdtemp(prefix="recqc-parity-"))
     folders = [d for d in sorted(corpus.iterdir())
                if d.is_dir() and any(d.glob("*" + recqc_runner.TAKE_SUFFIXES["phrase"]))]
-    for side in ("cpython", "pyodide"):
-        for profile in PROFILES:
-            for folder in folders:
-                dest = work / side / profile / folder.name
-                dest.mkdir(parents=True)
-                for take in recqc_runner.find_takes(folder).values():
-                    shutil.copy2(take, dest / take.name)
-    print(f"Corpus   {corpus.name}: {len(folders)} folders, takes copied to {work}")
+    for name, (profile, rate) in SETS.items():
+        for folder in folders:
+            for side in ("cpython", "pyodide"):
+                (work / side / name / folder.name).mkdir(parents=True)
+            for take in recqc_runner.find_takes(folder).values():
+                first = work / "cpython" / name / folder.name / take.name
+                if rate == 48000:
+                    shutil.copy2(take, first)
+                else:
+                    write_44k(take, first)
+                shutil.copy2(first, work / "pyodide" / name / folder.name / take.name)
+    print(f"Corpus   {corpus.name}: {len(folders)} folders, takes copied to {work} "
+          f"({len(SETS)} sets: {', '.join(SETS)})")
 
     try:
         # 4. CPython side, in this process. A JSON round trip makes both sides' types match.
         cpython, cpython_seconds = {}, {}
-        for profile in PROFILES:
+        for name, (profile, _) in SETS.items():
             t0 = time.perf_counter()
-            rows = recqc_runner.run_corpus(work / "cpython" / profile, profile)
-            cpython_seconds[profile] = time.perf_counter() - t0
-            cpython[profile] = json.loads(json.dumps(rows))
+            rows = recqc_runner.run_corpus(work / "cpython" / name, profile)
+            cpython_seconds[name] = time.perf_counter() - t0
+            cpython[name] = json.loads(json.dumps(rows))
 
         # 5. Pyodide side, in Node.
         out_json = work / "pyodide.json"
         t0 = time.perf_counter()
         proc = subprocess.run([node, str(HERE / "run_pyodide.mjs"), str(work / "pyodide"),
-                               str(out_json), *PROFILES],
+                               str(out_json), *(f"{n}:{p}" for n, (p, _) in SETS.items())],
                               capture_output=True, text=True, timeout=3600)
         node_seconds = time.perf_counter() - t0
         if proc.returncode != 0 or not out_json.is_file():
@@ -226,17 +281,30 @@ def main():
               f"; booted in {pyo['boot_seconds']} s")
         print()
 
-        # 6. P1: Pyodide against CPython, per profile and folder.
+        # 6. P1: Pyodide against CPython, per set and folder.
         results, passed = {}, True
-        for profile in PROFILES:
+        for set_name in SETS:
             comp = compare.Comparison()
-            a_rows = {r["folder"]: r for r in pyo["profiles"][profile]}
-            b_rows = {r["folder"]: r for r in cpython[profile]}
+            a_rows = {r["folder"]: r for r in pyo["profiles"][set_name]}
+            b_rows = {r["folder"]: r for r in cpython[set_name]}
             for name in sorted(set(a_rows) | set(b_rows)):
                 comp.walk(a_rows.get(name, compare.MISSING), b_rows.get(name, compare.MISSING),
                           (name,))
-            passed &= show(comp, f"P1 {profile}: Pyodide (A) vs CPython (B)")
-            results[f"P1 {profile}"] = comp
+            passed &= show(comp, f"P1 {set_name}: Pyodide (A) vs CPython (B)")
+            results[f"P1 {set_name}"] = comp
+
+        # The derived working copies themselves, for each resampled set.
+        for set_name, (_, rate) in SETS.items():
+            if rate == 48000:
+                continue
+            worst, compared, problems = working_copy_difference(work, set_name)
+            ok = not problems and compared > 0
+            passed &= ok
+            print(f"{'PASS' if ok else 'FAIL':8s} P1 {set_name} working copies: {compared} files, "
+                  f"largest sample difference {worst:.0f} x 24-bit step "
+                  f"(soxr {libs.get('soxr')} in Pyodide, {found['soxr']} in CPython)")
+            for problem in problems:
+                print(f"         {problem}")
 
         # 7. P2: CPython (defaults) against the stored records.
         comp = compare.Comparison(expected=[dry_room_added])
@@ -266,13 +334,13 @@ def main():
 
         # 9. Timings, for the record (not compared).
         print()
-        for profile in PROFILES:
-            for side, rows in (("CPython", cpython[profile]), ("Pyodide", pyo["profiles"][profile])):
+        for set_name in SETS:
+            for side, rows in (("CPython", cpython[set_name]), ("Pyodide", pyo["profiles"][set_name])):
                 totals = {}
                 for r in rows:
                     for stage, s in r["timings"].items():
                         totals[stage] = totals.get(stage, 0.0) + s
-                print(f"Timing   {profile:13s} {side}: " + ", ".join(
+                print(f"Timing   {set_name:17s} {side}: " + ", ".join(
                     f"{stage} {s / len(rows):.2f} s" for stage, s in totals.items())
                     + " per folder")
         print(f"Timing   wall clock: CPython {sum(cpython_seconds.values()):.1f} s, "
@@ -297,7 +365,7 @@ def main():
             shutil.rmtree(work, ignore_errors=True)
 
     print()
-    print("M1 PARITY: PASS" if passed else "M1 PARITY: FAIL")
+    print("PARITY: PASS" if passed else "PARITY: FAIL")
     return 0 if passed else 1
 
 

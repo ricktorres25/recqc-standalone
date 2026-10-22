@@ -13,8 +13,9 @@
 // Python builds the whole output and Node writes it through unparsed: a record may
 // hold NaN, which Python's json writes but JavaScript's JSON.parse rejects.
 //
-// Usage:  node tests/parity/run_pyodide.mjs <work dir> <out.json> <profile> [<profile> ...]
-//         where <work dir>/<profile>/ holds one folder of takes per corpus folder.
+// Usage:  node tests/parity/run_pyodide.mjs <work dir> <out.json> <set> [<set> ...]
+//         where a set is <name>:<profile> (or just <profile>, named after it) and
+//         <work dir>/<name>/ holds one folder of takes per corpus folder.
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,9 +23,9 @@ import { loadPyodide } from "../../pyodide/pyodide.mjs";
 import { bootRecQC } from "../../app/recqc_boot.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const [workDir, outPath, ...profiles] = process.argv.slice(2);
-if (!workDir || !outPath || profiles.length === 0) {
-  console.error("usage: node tests/parity/run_pyodide.mjs <work dir> <out.json> <profile> [...]");
+const [workDir, outPath, ...sets] = process.argv.slice(2);
+if (!workDir || !outPath || sets.length === 0) {
+  console.error("usage: node tests/parity/run_pyodide.mjs <work dir> <out.json> <set> [...]");
   process.exit(2);
 }
 
@@ -59,9 +60,10 @@ result = {
                   "pyloudnorm": version("pyloudnorm"), "future": version("future")},
     "profiles": {},
 }
-for profile in ${JSON.stringify(profiles)}:
-    result["profiles"][profile] = recqc_runner.run_corpus(f"/work/{profile}", profile)
-    print(f"[pyodide] {profile}: {len(result['profiles'][profile])} folders", file=sys.stderr)
+for spec in ${JSON.stringify(sets)}:
+    name, _, profile = spec.partition(":")
+    result["profiles"][name] = recqc_runner.run_corpus(f"/work/{name}", profile or name)
+    print(f"[pyodide] {name}: {len(result['profiles'][name])} folders", file=sys.stderr)
 json.dumps(result)
 `);
 await writeFile(outPath, json);

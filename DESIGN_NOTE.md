@@ -1,6 +1,6 @@
 # RecQC Standalone: design note
 
-**Status:** DRAFT for Rick's approval; gate 1 of the build, no code before approval. Written 2026-10-20 (session `s-2026-10-20-code-audio-pipeline-tooling-2`, task `t-recqc-standalone`) from the platform code as read today. Rulings: career-planning loop `recqc-standalone` and `career-planning:platform-ownership`, both 2026-10-20.
+**Status:** approved by Rick 2026-10-20 (gate 1 of the build). Written 2026-10-20 (session `s-2026-10-20-code-audio-pipeline-tooling-2`, task `t-recqc-standalone`) from the platform code as read that day. Rulings: career-planning loop `recqc-standalone` and `career-planning:platform-ownership`, both 2026-10-20.
 
 ## 1. What it is
 
@@ -14,7 +14,7 @@ Static client-side web app, one folder, no backend, and the folder is the deploy
 
 The cores run in-browser unmodified, vendored the Intake Scanner way: `vendor_cores.sh`, `VENDORED.json` (repo, commit, sha256 per file), a start check that refuses on mismatch, copies never edited here. Vendored: `level_check_phrase_core.py`; `noise_profile_scanner_core.py` with `platform_band.yaml`; `rt60_analyzer_core_v5.py` with `platform_band`, `strict`, `forgiving` yamls; from the platform, `provenance.py` (`verify_samples`, `ceiling_from_provenance`) and a `ceiling.py` lifted from `_env_ceiling`, `_device_ceiling` and the `min()` in `audition_reviews.py` plus `AUDIO_TIERS` in `tiers.py`.
 
-Dependencies checked today against Pyodide 314.0.7: numpy, scipy, pyyaml, soundfile and soxr are built in; pyloudnorm is not, so its pure-Python wheel (plus `future`) ships in the repo and nothing is fetched at run time. The Pyodide subset is vendored too, about 40 MB once, so a fork is self-contained and works offline or on an intranet (D2). Parity: one harness runs `Screening Pipeline/Testing corpus` through the cores in the venv and in Pyodide's Node package and diffs the records field by field. A TypeScript port, if ever, comes later with Pyodide as oracle.
+Dependencies checked today against Pyodide 314.0.7: numpy, scipy, pyyaml, soundfile and soxr are built in; pyloudnorm is not, so its pure-Python wheel (plus `future`) ships in the repo and nothing is fetched at run time. The Pyodide subset is vendored too, 32 MB once (32,065,386 bytes as vendored at M1), so a fork is self-contained and works offline or on an intranet (D2). Parity: one harness runs `Screening Pipeline/Testing corpus` through the cores in the venv and in Pyodide's Node package and diffs the records field by field. A TypeScript port, if ever, comes later with Pyodide as oracle.
 
 ## 4. The pipeline, mirrored from the platform
 
@@ -61,7 +61,7 @@ Every number is a property of this capture chain, in this room, now, in uncalibr
 
 ## 12. Repo and increments
 
-This folder; remote `ricktorres25/audio-recqc` or your name under the github-showcase naming decision; public from day one (Pages). Layout: `index.html`, `app/`, `py/` (cores, yamls, `VENDORED.json`, `vendor_cores.sh`, `recqc_runner.py` as the thin orchestration), `pyodide/`, `sw.js`, `manifest.webmanifest`, `tests/`, `README.md`, this note. Zero recurring cost; a custom domain is the only optional money. Weekend-sized increments, each ending at your gate: **M1** Pyodide loads the cores and reproduces the corpus records, no mic. **M2** capture, bypass check, level. **M3** quiet room, selector, profile save. **M4** clap, ceiling card, margins. **M5** PWA, Pages, README, parity in CI.
+This folder; remote `ricktorres25/recqc-standalone`; public from day one (Pages). Layout: `index.html`, `app/`, `py/` (cores, yamls, `VENDORED.json`, `vendor_cores.sh`, `recqc_runner.py` as the thin orchestration), `pyodide/`, `sw.js`, `manifest.webmanifest`, `tests/`, `README.md`, this note. Zero recurring cost; a custom domain is the only optional money. Weekend-sized increments, each ending at your gate: **M1** Pyodide loads the cores and reproduces the corpus records, no mic. **M2** capture, bypass check, level. **M3** quiet room, selector, profile save. **M4** clap, ceiling card, margins. **M5** PWA, Pages, README, parity in CI.
 
 ## Decisions for Rick
 

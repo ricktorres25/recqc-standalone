@@ -5,20 +5,345 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RecQC Standalone</title>
   <style>
-    body { font-family: -apple-system, system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; color: #222; background: #fff; }
+    :root {
+      --bg: #ffffff; --ink: #1f1f1f; --soft: #5a5a5a; --line: #dddddd; --panel: #f4f4f4;
+      --accent: #0b57d0; --pass: #1e7f3c; --warn: #9a5800; --fail: #b3261e; --bar: #2e7d32;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #151515; --ink: #ececec; --soft: #a8a8a8; --line: #343434; --panel: #222222;
+        --accent: #8ab4f8; --pass: #6dd58c; --warn: #f2b84b; --fail: #f28b82; --bar: #6dd58c;
+      }
+    }
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 44rem; margin: 2rem auto;
+           padding: 0 1rem; line-height: 1.5; color: var(--ink); background: var(--bg); }
     h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
-    .status { color: #555; margin-top: 0; }
-    a { color: #0b57d0; }
+    h2 { font-size: 1.2rem; margin-top: 0; }
+    a { color: var(--accent); }
+    .banner { background: var(--panel); border-left: 4px solid var(--warn); padding: 0.5rem 0.75rem; }
+    .soft, .fine { color: var(--soft); }
+    .fine { font-size: 0.9rem; }
+    .card { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
+    .phrase { font-size: 1.15rem; margin: 0.5rem 0 1rem; padding-left: 0.75rem; border-left: 3px solid var(--line); }
+    .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    button { font: inherit; padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid var(--line);
+             background: var(--panel); color: var(--ink); cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .timer { font-family: ui-monospace, Menlo, monospace; min-width: 4rem; }
+    .meter { height: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+             margin: 1rem 0 0.4rem; overflow: hidden; }
+    #bar { height: 100%; width: 0; background: var(--bar); transition: width 50ms linear; }
+    .readings { font-family: ui-monospace, Menlo, monospace; font-size: 0.85rem; margin: 0 0 0.75rem; }
+    .pass { color: var(--pass); } .warn { color: var(--warn); } .fail { color: var(--fail); }
+    table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
+    th, td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
+    th { font-weight: 600; }
+    pre { background: var(--panel); padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
   </style>
 </head>
 <body>
   <h1>RecQC Standalone</h1>
-  <p class="status">Design stage. The app is not built yet; this page is a placeholder.</p>
-  <p>A recording-chain and room check that will run in your browser, on your machine, with nothing uploaded: a level check, a quiet-room measurement and a clap-based room-reflection measurement, scored under the MAD collection platform's published policy and reported as the audio tier ceiling a take could earn.</p>
-  <ul>
-    <li><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/README.md">README</a></li>
-    <li><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/DESIGN_NOTE.md">Design note</a></li>
-    <li><a href="https://github.com/ricktorres25/recqc-standalone">Repository</a></li>
-  </ul>
+  <p class="banner">In development: level check only. The quiet-room and room-reflection checks, and the tier ceiling they feed, come in later milestones.</p>
+  <p>A recording-chain check that runs in your browser, on your machine: the audio side of the MAD collection platform's Rec QC, scored by the platform's own measurement cores. Nothing is uploaded.</p>
+  <p id="browser-note" class="warn" hidden>This browser is not Chrome or Chromium, so the capture chain is unverified.</p>
+  <p id="engine" class="soft" aria-live="polite">Starting the analysis engine...</p>
+
+  <section class="card" aria-labelledby="level-title">
+    <h2 id="level-title">Set your level</h2>
+    <p>Read this, or anything else, for about five seconds:</p>
+    <p class="phrase">The busy port keeps shipping fresh produce, but the price still surprises most customers.</p>
+    <div class="controls">
+      <button id="arm">Turn on the mic</button>
+      <button id="record" disabled>Record</button>
+      <button id="stop" disabled>Stop</button>
+      <span id="timer" class="timer"></span>
+    </div>
+    <div class="meter" aria-hidden="true"><div id="bar"></div></div>
+    <p id="readings" class="readings">Live meter: off</p>
+    <p id="readback"></p>
+    <p class="fine">The mic check reads what the browser reports. It cannot see processing before the browser, such as macOS Voice Isolation.</p>
+    <div id="result" aria-live="polite"></div>
+  </section>
+
+  <p class="fine">Every number is a property of this capture chain, in this room, now, in uncalibrated dBFS. It says whether a take would clear the platform's gates, not how a recording will score with a listener or a model.</p>
+  <p class="fine"><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/README.md">README</a> · <a href="https://github.com/ricktorres25/recqc-standalone/blob/main/DESIGN_NOTE.md">Design note</a> · <a href="https://github.com/ricktorres25/recqc-standalone">Repository</a></p>
+
+  <script>
+    // Chrome will not load the Python runtime from a file:// page, so say so instead of failing silently.
+    if (location.protocol === "file:") {
+      document.getElementById("engine").textContent =
+        "Open the hosted link, or serve this folder: run  python3 -m http.server 8000  in it, " +
+        "then open http://localhost:8000";
+    }
+  </script>
+  <script type="module">
+    import { Capture, bypassState, MAX_SECONDS } from "./app/capture.mjs";
+
+    const $ = (id) => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    const DEBUG = params.has("debug"), SELFTEST = params.has("selftest");
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const fmt = (v, digits = 2) => (typeof v === "number" ? v.toFixed(digits) : "-");
+    const TIERS = { 2: "Lo-fi", 3: "Good", 4: "Hi-fi" };   // the platform's AUDIO_TIERS
+
+    // navigator.userAgentData exists only in Chromium browsers (the platform's own marker).
+    if (!navigator.userAgentData) $("browser-note").hidden = false;
+
+    // ---- The analysis engine: Pyodide and the cores in a module worker, started now ----
+    const worker = new Worker(new URL("./app/recqc_worker.mjs", import.meta.url), { type: "module" });
+    const pending = new Map();
+    let nextId = 0, engineState = "starting", engineResolve, engineReject;
+    const engineUp = new Promise((resolve, reject) => { engineResolve = resolve; engineReject = reject; });
+    engineUp.catch(() => {});
+    const engineFailed = (message) => {
+      engineState = "failed";
+      $("engine").textContent = "The analysis engine failed to start: " + message;
+      $("engine").className = "fail";
+      engineReject(new Error(message));
+    };
+    worker.onmessage = ({ data }) => {
+      if (data.type === "log") $("engine").textContent = "Starting the analysis engine: " + data.message;
+      else if (data.type === "ready") {
+        engineState = "ready";
+        $("engine").textContent = `Analysis engine ready: Pyodide ${data.version}, and the vendored cores passed their start check.`;
+        engineResolve();
+      } else if (data.type === "boot-failed") engineFailed(data.error);
+      else if (pending.has(data.id)) { pending.get(data.id)(data); pending.delete(data.id); }
+    };
+    worker.onerror = (e) => engineFailed(e.message || "the worker did not load");
+
+    async function analyze(wav, bypass) {
+      const buffer = await wav.arrayBuffer();
+      return new Promise((resolve) => {
+        const id = ++nextId;
+        pending.set(id, resolve);
+        worker.postMessage({ id, op: "level", wav: buffer, bypass }, [buffer]);
+      });
+    }
+
+    // ---- The live meter, drawn from the worklet's messages ----
+    // The platform's meter thresholds: the bar warns above -3 dBFS; loudness reads green
+    // above -36 LUFS and red below -42.
+    const PEAK_MIN_DB = -60, PEAK_WARN_DB = -3, LUFS_GREEN_ABOVE = -36, LUFS_RED_BELOW = -42;
+    let meter = null, peakSince = -Infinity;   // the highest peak since the last frame drawn
+    const onMeter = (d) => {
+      if (stage === "off") return;   // a last message can arrive after the mic is turned off
+      meter = d;
+      peakSince = Math.max(peakSince, d.peakDb);
+    };
+    const db = (v, unit) => (Number.isFinite(v) ? `${v.toFixed(1)} ${unit}` : "-");
+    const lufsClass = (v) => (!Number.isFinite(v) ? "" : v > LUFS_GREEN_ABOVE ? "pass"
+                              : v < LUFS_RED_BELOW ? "fail" : "warn");
+    function drawMeter() {
+      if (meter) {
+        const p = Number.isFinite(peakSince) ? peakSince : PEAK_MIN_DB;
+        const share = Math.min(1, Math.max(0, (p - PEAK_MIN_DB) / -PEAK_MIN_DB));
+        $("bar").style.width = `${(share * 100).toFixed(1)}%`;
+        $("bar").style.background = meter.everClipped ? "var(--fail)" : p > PEAK_WARN_DB ? "var(--warn)" : "var(--bar)";
+        peakSince = -Infinity;
+        const r = $("readings");
+        r.replaceChildren(
+          `Live meter: peak ${db(meter.peakDb, "dBFS")} · max true peak ${db(meter.maxTpDb, "dBTP")}` +
+          (meter.everClipped ? " (clipped)" : "") + " · momentary ",
+          span(db(meter.momLufs, "LUFS"), lufsClass(meter.momLufs)), " · integrated ",
+          span(db(meter.intLufs, "LUFS"), lufsClass(meter.intLufs)));
+      }
+      requestAnimationFrame(drawMeter);
+    }
+    requestAnimationFrame(drawMeter);
+
+    function span(text, cls) { const s = document.createElement("span"); s.textContent = text; if (cls) s.className = cls; return s; }
+    function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
+
+    // ---- The mic readback ----
+    const word = (v) => (v === false ? "off" : v === true ? "ON" : "not reported");
+    const STATE_TEXT = { verified: "verified", unverified: "unverified", active: "processing active" };
+    function showReadback(rb) {
+      const state = bypassState(rb);
+      const device = rb.is_mobile === true ? "mobile" : rb.is_mobile === false ? "desktop" : "unknown";
+      const p = $("readback");
+      p.replaceChildren(
+        "Mic check: ", span(STATE_TEXT[state], state === "verified" ? "pass" : state === "active" ? "fail" : "warn"),
+        ` (AGC ${word(rb.agc)}, noise suppression ${word(rb.ns)}, echo cancellation ${word(rb.ec)}). ` +
+        `Rates: track ${rb.track_sample_rate ? rb.track_sample_rate + " Hz" : "not reported"}, ` +
+        `recording at ${rb.context_sample_rate} Hz. Device, self-reported: ${device}.`);
+      if (state === "active") {
+        p.append(el("span", " The browser kept its processing on after RecQC asked for it off. A level taken " +
+          "through it would mislead, so this stage does not run. Check the browser's and the system's " +
+          "microphone settings, then turn the mic on again.", "fail"));
+      } else if (state === "unverified") {
+        p.append(el("span", " This browser does not report every flag, so the measurements run but the " +
+          "format ceiling is held at 3.", "warn"));
+      }
+      return state;
+    }
+
+    // ---- One take, start to result ----
+    const capture = new Capture(onMeter);
+    let stage = "off", readback = null, timer = null, startedAt = 0;
+    function setStage(next) {
+      stage = next;
+      $("arm").disabled = next !== "off" && next !== "armed";
+      $("record").disabled = next !== "armed" || bypassState(readback || {}) === "active";
+      $("stop").disabled = next !== "recording";
+      $("arm").textContent = next === "off" ? "Turn on the mic" : "Turn off the mic";
+    }
+
+    $("arm").onclick = async () => {
+      if (stage === "armed") {   // the same button turns the mic off again
+        capture.disarm();
+        meter = null;
+        $("bar").style.width = "0";
+        $("readings").textContent = "Live meter: off";
+        $("readback").replaceChildren();
+        $("record").textContent = "Record";
+        setStage("off");
+        return;
+      }
+      $("arm").disabled = true;
+      try { readback = await capture.arm(); }
+      catch (e) {
+        capture.disarm();
+        $("readback").replaceChildren(el("span", `The browser did not open the microphone: ${e.message || e.name}`, "fail"));
+        setStage("off");
+        return;
+      }
+      showReadback(readback);
+      setStage("armed");
+    };
+
+    $("record").onclick = async () => {
+      if (stage !== "armed") return;
+      setStage("starting");
+      $("result").replaceChildren();
+      startedAt = performance.now();   // the platform's auto-stop counts the pre-roll too
+      await capture.start();
+      setStage("recording");
+      timer = setInterval(() => {
+        const s = (performance.now() - startedAt) / 1000;
+        $("timer").textContent = `${s.toFixed(1)} s`;
+        if (s >= MAX_SECONDS) stopTake();
+      }, 100);
+    };
+    $("stop").onclick = () => stopTake();
+
+    async function stopTake() {
+      if (stage !== "recording") return;
+      clearInterval(timer);
+      setStage("stopping");
+      const take = await capture.stop();
+      if (!take.wav) {
+        $("result").replaceChildren(el("p", "No audio was captured. Turn the mic off and on again, then retry.", "fail"));
+        setStage("armed");
+        return;
+      }
+      if (engineState === "failed") {
+        $("result").replaceChildren(el("p", "The analysis engine did not start, so this take cannot be scored. " +
+          "Reload the page; if it fails again, the message above says why.", "fail"));
+        setStage("armed");
+        return;
+      }
+      $("result").replaceChildren(el("p", engineState === "ready" ? "Analyzing..."
+        : "Analyzing (the engine is still starting; the first take waits for it)...", "soft"));
+      const bypass = bypassState(readback);
+      const reply = await analyze(take.wav, bypass);
+      render(reply, take, bypass);
+      setStage("armed");
+      $("record").textContent = "Record again";
+      return { take, reply };
+    }
+
+    // ---- The result ----
+    function render(reply, take, bypass) {
+      const box = $("result");
+      box.replaceChildren();
+      if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
+      const r = reply.result;
+      const seconds = (take.samples.length / take.rate).toFixed(1);
+      box.append(el("p", `Take: ${seconds} s at ${take.rate} Hz, 24-bit mono.`, "soft"));
+      if (r.refused) { box.append(el("p", r.refused, "fail")); return; }
+
+      const table = el("table");
+      table.append(row(["Check", "Result", "Detail"], "th"));
+      // Mic check
+      table.append(row(["Mic check", STATE_TEXT[bypass],
+        `AGC ${word(readback.agc)}, noise suppression ${word(readback.ns)}, echo cancellation ${word(readback.ec)}` +
+        (navigator.userAgentData ? "" : ". Capture chain unverified (not Chrome or Chromium).")]));
+      // Format
+      const pv = r.provenance || {};
+      if (pv.error) table.append(row(["Format", "error", pv.error]));
+      else {
+        const notes = [pv.detail && pv.detail.reason, pv.lossless ? "lossless" : "lossy"];
+        if (take.rate === 44100) notes.push("a 44.1 kHz chain can never reach 4: there is no energy above 22.05 kHz to find");
+        if (bypass !== "verified") notes.push("held at 3 because the mic check is unverified");
+        table.append(row(["Format", pv.spectral_verdict,
+          `Allows up to ${r.format_ceiling} (${TIERS[r.format_ceiling] || "?"}): ${notes.filter(Boolean).join("; ")}.`]));
+      }
+      // Level
+      const lv = r.level || {};
+      if (lv.error) table.append(row(["Level", "error", lv.error]));
+      else if (r.level) {
+        table.append(row(["True peak", lv.peak_disposition, `${fmt(lv.true_peak_dbtp)} dBTP (sample peak ${fmt(lv.sample_peak_dbfs)} dBFS)`]));
+        table.append(row(["Integrated loudness", lv.lufs_disposition, `${fmt(lv.integrated_lufs)} LUFS`]));
+        table.append(row(["Speech level (A-weighted)", "", `${fmt(lv.speech_level_dba)} dBFS`]));
+        table.append(row(["Crest factor", "", `${fmt(lv.crest_factor_db)} dB`]));
+      }
+      if (r.level_gate) {
+        // The gate's reason already carries the core's fail reasons, so they are the fallback only.
+        const [verdict, reason] = r.level_gate;
+        const reasons = reason ? [reason] : (lv.fail_reasons || []);
+        const tr = row(["Level gate", verdict, reasons.length ? reasons.join("; ") : "clears the platform's level gate"]);
+        tr.children[1].className = verdict === "PASS" ? "pass" : "fail";
+        table.append(tr);
+      }
+      if (r.working_copy && r.working_copy.derived) {
+        table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
+      }
+      box.append(table);
+
+      if (DEBUG) {
+        const a = el("a", "Download this take (WAV)");
+        a.href = URL.createObjectURL(take.wav);
+        a.download = `recqc_level_${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+        box.append(el("p"));
+        box.lastChild.append(a);
+      }
+      const details = el("details");
+      details.append(el("summary", "Full record"), el("pre", JSON.stringify({ readback, take: { rate: take.rate,
+        seconds: Number(seconds), capture_bookkeeping: take.bookkeeping }, result: r }, null, 2)));
+      box.append(details);
+    }
+    function row(cells, tag = "td") { const tr = el("tr"); for (const c of cells) tr.append(el(tag, c ?? "-")); return tr; }
+
+    // ---- ?selftest: the whole path once, with whatever mic the browser offers ----
+    // A headless Chrome with a fake mic (tests/headless_capture.py) reads the outcome
+    // from the page title.
+    async function selftest() {
+      const done = (line) => { document.title = line; $("engine").textContent = line; };
+      try {
+        await engineUp;
+        $("arm").click();
+        while (stage === "off" && !$("readback").textContent) await sleep(50);
+        if (stage !== "armed") return done("SELFTEST FAIL: " + ($("readback").textContent || "mic did not open"));
+        if (bypassState(readback) === "active") return done("SELFTEST FAIL: browser processing active " + JSON.stringify(readback));
+        $("record").click();
+        while (stage !== "recording") await sleep(20);
+        await sleep(3000);
+        const out = await stopTake();
+        // The path works when every stage produced its record; the verdicts are whatever
+        // the mic gave (a fake mic's tone can fairly fail the level gate).
+        const r = out && out.reply.ok ? out.reply.result : null;
+        const ok = r && r.provenance && !r.provenance.error && typeof r.format_ceiling === "number"
+                   && r.level && !r.level.error && Array.isArray(r.level_gate);
+        done(ok ? `SELFTEST PASS: ${bypassState(readback)}, ${out.take.rate} Hz, ` +
+                  `${(out.take.samples.length / out.take.rate).toFixed(1)} s, format ` +
+                  `${r.provenance.spectral_verdict} (up to ${r.format_ceiling}), true peak ` +
+                  `${fmt(r.level.true_peak_dbtp)} dBTP, ${fmt(r.level.integrated_lufs)} LUFS, ` +
+                  `level gate ${r.level_gate[0]}`
+                : "SELFTEST FAIL: " + (out ? JSON.stringify(out.reply).slice(0, 400) : $("result").textContent));
+      } catch (e) { done("SELFTEST FAIL: " + String(e.message || e)); }
+    }
+    if (SELFTEST) selftest();
+  </script>
 </body>
 </html>

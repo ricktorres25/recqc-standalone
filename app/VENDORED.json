@@ -1,0 +1,27 @@
+{
+  "written_by": "py/vendor_cores.sh",
+  "note": "Written by py/vendor_cores.sh. Do not edit by hand. Each file below holds the declarations named in 'symbols', lifted verbatim from source_path at the recorded commit, then a generated footer that declares the page variables named in 'shared' and exports the declarations. tests/test_vendored.py checks each file against its source repo. The browser does not check these files at start.",
+  "files": [
+    {
+      "path": "platform_capture.mjs",
+      "source_folder": "Talent Platform",
+      "source_path": "app/static/index.html",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "symbols": [
+        "WORKLET_CODE",
+        "encodeWav24",
+        "getMicConstraints",
+        "checkMicProcessing",
+        "browserFingerprint",
+        "IS_MOBILE"
+      ],
+      "shared": [
+        "procStatus",
+        "lastBrowserFingerprint",
+        "audioCtx"
+      ],
+      "sha256": "dd0619cf374adeb60cb976095e113d141e7b5c5eb169332a8b46423f1bd513cc"
+    }
+  ]
+}

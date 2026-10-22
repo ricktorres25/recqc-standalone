@@ -1,6 +1,6 @@
 {
   "written_by": "py/vendor_cores.sh",
-  "note": "Written by py/vendor_cores.sh. Do not edit by hand. RecQC refuses to start if a file below differs from its sha256, and tests/test_vendored.py checks each file against its source repo at the recorded commit. An entry with 'symbols' holds only those functions, lifted verbatim from source_path.",
+  "note": "Written by py/vendor_cores.sh. Do not edit by hand. RecQC refuses to start if a file below differs from its sha256, and tests/test_vendored.py checks each file against its source repo at the recorded commit. An entry with 'symbols' holds only those functions, lifted verbatim from source_path, plus the source's own import lines listed under 'imports', if any.",
   "files": [
     {
       "path": "level_check_phrase_core.py",
@@ -93,6 +93,23 @@
         "_device_ceiling"
       ],
       "sha256": "5810d3c89e5497b333b4f46ce63aa4b70662f44ecdf05c3fe031f570ec334f4c"
+    },
+    {
+      "path": "platform_ingest.py",
+      "source_folder": "Talent Platform",
+      "source_path": "app/cores.py",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "symbols": [
+        "_derive_working"
+      ],
+      "imports": [
+        "from pathlib import Path",
+        "import numpy as np",
+        "import soundfile as sf",
+        "import soxr"
+      ],
+      "sha256": "ba7d77a666ca512362384c1863ac23d35518cb8016b646545f82d5ded67c639d"
     }
   ]
 }
