@@ -43,7 +43,11 @@
 # Read-only on the corpus: the takes are copied into a work folder per side and
 # profile, the cores write there, and the folder is removed at the end (--keep keeps it).
 #
-# Run:   python3 tests/parity/parity.py ["<Testing corpus>"] [--keep] [--report out.json]
+# CI (M5) runs it on a synthetic corpus (tests/parity/synth_corpus.py) with --no-stored:
+# P1, P3 and N as above, P2 skipped, since a synthetic take has no stored record. The
+# real corpus run, P2 included, stays the release check on Rick's Mac.
+#
+# Run:   python3 tests/parity/parity.py ["<Testing corpus>"] [--no-stored] [--keep] [--report out.json]
 #        (pyenv 3.12.7 on Rick's Mac carries the live library versions)
 # Exit:  0 pass, 1 a difference, 2 not run (an input or tool was missing; never a pass)
 import sys
@@ -272,6 +276,8 @@ def main():
     ap = argparse.ArgumentParser(description="Parity: Pyodide vs CPython vs stored records")
     ap.add_argument("corpus", nargs="?", default=str(DEFAULT_CORPUS))
     ap.add_argument("--keep", action="store_true", help="keep the work folder")
+    ap.add_argument("--no-stored", action="store_true",
+                    help="skip P2 (a corpus without stored records, such as the synthetic one in CI)")
     ap.add_argument("--report", help="write the full comparison as JSON here")
     args = ap.parse_args()
 
@@ -409,7 +415,7 @@ def main():
 
         # 7. P2: CPython (defaults) against the stored records.
         comp = compare.Comparison(expected=[dry_room_added])
-        for ours in cpython["default"]:
+        for ours in ([] if args.no_stored else cpython["default"]):
             stored = json.loads((corpus / ours["folder"] / "screening_result.json")
                                 .read_text(encoding="utf-8"))
             for key, stage in STAGES.items():
@@ -418,8 +424,12 @@ def main():
             for sr in stored["stage_results"]:
                 comp.walk(ours.get(GATES[sr["stage"]]), [sr["verdict"], sr["reason"]],
                           (ours["folder"], GATES[sr["stage"]]))
-        passed &= show(comp, "P2 default: CPython (A) vs stored records (B)")
-        results["P2 default"] = comp
+        if args.no_stored:
+            print("SKIPPED  P2 default: --no-stored (this corpus has no stored records; "
+                  "the real corpus run covers P2)")
+        else:
+            passed &= show(comp, "P2 default: CPython (A) vs stored records (B)")
+            results["P2 default"] = comp
 
         # 8. P3: the page's flow against run_folder, in CPython, on the same takes.
         for page_set, folder_set in PAGE_PAIRS.items():
@@ -499,7 +509,8 @@ def main():
             shutil.rmtree(work, ignore_errors=True)
 
     print()
-    print("PARITY: PASS" if passed else "PARITY: FAIL")
+    print(("PARITY: PASS" + (" (P2 skipped: --no-stored)" if args.no_stored else "")) if passed
+          else "PARITY: FAIL")
     return 0 if passed else 1
 
 

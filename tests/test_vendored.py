@@ -16,7 +16,10 @@
 # check needs node; without them a check is reported NOT RUN, never PASS. Writes only
 # inside a temporary folder; the source repos are only read (git with --no-optional-locks).
 #
-# Run:   python3 tests/test_vendored.py
+# CI (M5) has no source repos, and runs with --no-source: V3 and V4's source checks are
+# then SKIPPED, by request, and the rest (V1, V2, V4's hashes and parse) must pass.
+#
+# Run:   python3 tests/test_vendored.py [--no-source]
 # Exit:  0 pass, 1 fail, 2 not run (an input was missing; never a pass)
 import sys
 sys.dont_write_bytecode = True   # leave no __pycache__ in py/
@@ -40,6 +43,8 @@ vc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(vc)
 
 statuses = []
+# A source repo that is not here: NOT RUN, or SKIPPED under --no-source (CI).
+NO_SOURCE = "SKIPPED" if "--no-source" in sys.argv[1:] else "NOT RUN"
 
 
 def report(status, text):
@@ -104,7 +109,7 @@ def check_js_lifts():
         result(found == entry["sha256"], f"V4 app/{name} matches app/VENDORED.json")
         source = source_bytes(entry)
         if source is None:
-            report("NOT RUN", f"V4 app/{name}: MAD/{entry['source_folder']} is not here")
+            report(NO_SOURCE, f"V4 app/{name}: MAD/{entry['source_folder']} is not here")
             continue
         if source == b"":
             result(False, f"V4 app/{name}: {entry['source_path']} not found at {entry['commit'][:7]}")
@@ -170,7 +175,7 @@ def main():
         source = source_bytes(entry)
         name = entry["path"]
         if source is None:
-            report("NOT RUN", f"V3 {name}: MAD/{entry['source_folder']} is not here")
+            report(NO_SOURCE, f"V3 {name}: MAD/{entry['source_folder']} is not here")
             continue
         if source == b"":
             result(False, f"V3 {name}: {entry['source_path']} not found at {entry['commit'][:7]}")
@@ -198,7 +203,7 @@ def main():
             other = next(e for e in entries[i + 1:] + entries[:i] if "symbols" not in e)
             other_source = source_bytes(other)
             if other_source is None:
-                report("NOT RUN", f"V3 near miss for {name}: MAD/{other['source_folder']} is not here")
+                report(NO_SOURCE, f"V3 near miss for {name}: MAD/{other['source_folder']} is not here")
             else:
                 result(other_source != vendored,
                        f"V3 near miss: {name} does not match {other['source_folder']}/{other['source_path']}")
@@ -212,7 +217,7 @@ def main():
     if "NOT RUN" in statuses:
         print("RESULT: NOT RUN (some checks could not run; this is not a pass)")
         return 2
-    print("RESULT: PASS")
+    print("RESULT: PASS" + (" (source checks skipped: --no-source)" if "SKIPPED" in statuses else ""))
     return 0
 
 

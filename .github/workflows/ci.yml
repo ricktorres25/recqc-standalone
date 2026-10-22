@@ -1,0 +1,60 @@
+# ci.yml - RecQC's checks on every push and pull request (M5). Tests only: GitHub Pages
+# keeps deploying the branch as before, and nothing here publishes anything.
+#
+# What runs here, and what stays on Rick's Mac:
+#   here   the offline copy's list and manifest, the vendored files' hashes, the ceiling
+#          and profile tests, parity (CPython vs Pyodide) on a synthetic corpus, and the
+#          page in headless Chrome on its tone, online and from the offline copy
+#   Mac    V3/V4 (the vendored files against the private source repos), parity on the
+#          real Testing corpus with P2 (the stored records), and the corpus fake-mic run
+#          (tests/headless_capture.py with no flags): the release check
+name: checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7.0.0   # v7.1.0 landed 2026-10-22; held back until it has aged
+        with:
+          python-version: "3.12.7"
+      - name: The live platform's libraries
+        run: python -m pip install -r tests/requirements.txt
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Offline copy - the precache list is current
+        run: python py/build_precache.py --check
+      - name: Offline copy - list and manifest
+        run: python tests/test_offline.py
+      - name: Vendored files (no source repos here)
+        run: python tests/test_vendored.py --no-source
+      - name: Ceiling and margins
+        run: python tests/test_ceiling.py
+      - name: Profiles, quiet room and room reflection
+        run: python tests/test_profiles.py
+
+      - name: Parity on the synthetic corpus
+        run: |
+          python tests/parity/synth_corpus.py "$RUNNER_TEMP/synthetic"
+          python tests/parity/parity.py "$RUNNER_TEMP/synthetic" --no-stored
+
+      # Ubuntu 24.04 stops unprivileged user namespaces, which Chrome's sandbox needs.
+      - name: Let Chrome's sandbox start
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: The page in headless Chrome, on its tone
+        run: python tests/headless_capture.py --tone --chrome "$(command -v google-chrome)"
+      - name: The offline copy in headless Chrome
+        run: python tests/headless_capture.py --offline --chrome "$(command -v google-chrome)"

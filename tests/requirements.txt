@@ -1,0 +1,10 @@
+# The live platform's library versions, which the CPython side of the parity test must
+# carry (tests/parity/parity.py LIVE_VERSIONS refuses any other). For CI, and for a
+# venv on a machine without Rick's pyenv 3.12.7.
+numpy==2.4.4
+scipy==1.16.3
+soundfile==0.13.1
+soxr==1.1.0
+PyYAML==6.0.3
+pyloudnorm==0.1.1
+future==1.0.0
