@@ -3,11 +3,12 @@
 // Everything that touches the audio is the platform's own code, lifted verbatim into
 // platform_capture.mjs: the mic constraints (AGC, noise suppression and echo
 // cancellation requested off), the mic-processing readback, the meter worklet and the
-// 24-bit WAV encoder. This file is the glue the platform's page wraps around them
+// 24-bit WAV encoder, and the capture-continuity check (capint-1) that reads the
+// worklet's frame count. This file is the glue the platform's page wraps around them
 // (MAD/Talent Platform app/static/index.html: startMeter, startRecording, stopRecording,
 // assembleCapture), without that page's UI and its meter-recovery machinery.
 import { WORKLET_CODE, encodeWav24, getMicConstraints, checkMicProcessing,
-         IS_MOBILE, shared } from "./platform_capture.mjs";
+         IS_MOBILE, captureIntegrityReport, shared } from "./platform_capture.mjs";
 
 // The platform's values: 200 ms recorded before a take shows as recording and after
 // Stop, and each stage's auto-stop (its STAGE_INFO), counted from the start of the
@@ -125,13 +126,16 @@ export class Capture {
   async start() {
     this.chunks = [];
     this.bookkeeping = null;
+    shared.lastCaptureBookkeeping = null;   // a take never inherits the last one's frame count
     this.node.port.postMessage({ type: "reset" });
     this.node.port.postMessage({ type: "capture-start" });
     await sleep(PRE_ROLL_MS);
   }
 
-  // End the take after the post-roll. Returns {samples, rate, wav, bookkeeping}, where
-  // wav is the platform's 24-bit mono WAV of the samples (null when nothing came in).
+  // End the take after the post-roll. Returns {samples, rate, wav, bookkeeping,
+  // continuity}, where wav is the platform's 24-bit mono WAV of the samples (null when
+  // nothing came in) and continuity is the platform's verdict on the worklet's frame
+  // count: clean, suspect, or unavailable when no count came back.
   async stop() {
     await sleep(POST_ROLL_MS);
     const ended = new Promise((resolve) => { this.ended = resolve; });
@@ -143,7 +147,8 @@ export class Capture {
     for (const c of this.chunks) { samples.set(c, at); at += c.length; }
     this.chunks = [];
     const rate = this.ctx.sampleRate;
-    return { samples, rate, bookkeeping: this.bookkeeping,
+    shared.lastCaptureBookkeeping = this.bookkeeping;
+    return { samples, rate, bookkeeping: this.bookkeeping, continuity: captureIntegrityReport(),
              wav: samples.length ? encodeWav24(samples, rate) : null };
   }
 

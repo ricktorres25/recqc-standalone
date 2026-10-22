@@ -222,11 +222,13 @@ def lift_js(source, names):
 
     The standard library has no JavaScript parser, so this goes by the source's layout
     and refuses (ValueError) whenever the layout does not fit. A declaration starts on
-    the one line that begins with it. It ends at the first later line that starts with
-    '}', or, when its first line opens a template string (ends with a backtick), at the
-    first later line that is exactly '`;', and that string must hold no backtick and no
-    '${'. Every line in between must be blank or indented, so a missed end cannot
-    swallow the next declaration. vendor_cores.sh also runs node --check on the result.
+    the one line that begins with it. A first line that ends with ';' and closes every
+    bracket it opens is the whole declaration (const NAME="value";). Otherwise it ends
+    at the first later line that starts with '}', or, when its first line opens a
+    template string (ends with a backtick), at the first later line that is exactly
+    '`;', and that string must hold no backtick and no '${'. Every line in between must
+    be blank or indented, so a missed end cannot swallow the next declaration.
+    vendor_cores.sh also runs node --check on the result.
     """
     lines = source.splitlines(keepends=True)
     found = []
@@ -236,7 +238,11 @@ def lift_js(source, names):
         if len(starts) != 1:
             raise ValueError(f"{name}: {len(starts)} top-level declarations found, expected 1")
         start = starts[0]
-        template = lines[start].rstrip("\n").endswith("`")
+        first = lines[start].rstrip("\n")
+        if first.endswith(";") and all(first.count(o) == first.count(c) for o, c in ("{}", "()", "[]")):
+            found.append(lines[start])
+            continue
+        template = first.endswith("`")
         for end in range(start + 1, len(lines)):
             line = lines[end]
             if (line.rstrip("\n") == "`;") if template else line.startswith("}"):

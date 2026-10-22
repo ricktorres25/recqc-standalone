@@ -6,7 +6,8 @@
 #   V3  each vendored file is the committed file at the recorded commit in its source
 #       repo; a lifted file is exactly what the lift renders from the source at that commit
 #   V4  each lifted JavaScript file in app/VENDORED.json matches its sha256, is exactly
-#       what the lift renders from its source at the recorded commit, and parses (node)
+#       what the lift renders from its source at the recorded commit, and parses (node);
+#       and the lifter's one-line rule (a complete one-line declaration stands alone)
 #
 # Every check also runs its near miss (builds:grader-negative-control): a case that
 # differs from a passing one only in the property being checked. A near miss that is
@@ -100,6 +101,14 @@ def one_byte_changed(source, declaration):
 
 def check_js_lifts():
     """V4: every lifted JavaScript file in app/VENDORED.json."""
+    # The lifter's one-line rule: a first line that ends with ';' and closes every bracket
+    # it opens is the whole declaration; one that leaves a bracket open runs on to its '}'.
+    one = 'const A="capint-1";\n// a comment\nconst B=1;\n'
+    open_paren = 'const C=f(function(){ return 1;\n});\n'
+    result(vc.lift_js(one, ["A"]) == ['const A="capint-1";\n'],
+           "V4 the lifter takes a one-line declaration alone, even with an unindented line after it")
+    result(vc.lift_js(open_paren, ["C"]) == [open_paren],
+           "V4 near miss: a first line ending in ';' with a bracket still open runs on to its closing line")
     entries = vc.load_manifest(APP)["files"]
     node = shutil.which("node")
     for entry in entries:

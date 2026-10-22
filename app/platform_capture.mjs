@@ -175,10 +175,41 @@ const IS_MOBILE=(()=>{try{
   return null;
 }catch(e){ return null; }})();
 
+const CAPTURE_INSTRUMENT_VERSION="capint-1";
+
+function captureIntegrityReport(){
+  const r=Object.assign({ is_mobile:IS_MOBILE, instrument_version:CAPTURE_INSTRUMENT_VERSION },
+                        lastBrowserFingerprint||{});
+  const bk=lastCaptureBookkeeping;
+  if(!bk){ r.verdict="unavailable"; return r; }  // fail-safe: no report ≠ clean
+  const mismatch=(typeof bk.frames_expected==="number"&&typeof bk.frames_recorded==="number"
+    &&bk.frames_expected!==bk.frames_recorded);
+  r.verdict=(bk.gap_count>0||mismatch)?"suspect":"clean";
+  r.gap_count=bk.gap_count; r.dropped_frames=bk.dropped_frames;
+  r.frames_recorded=bk.frames_recorded; r.frames_expected=bk.frames_expected;
+  r.process_calls=bk.process_calls; r.empty_input_blocks=bk.empty_input_blocks;
+  r.context_sample_rate=bk.context_sample_rate;
+  if(bk.gaps&&bk.gaps.length) r.gaps=bk.gaps;
+  return r;
+}
+
+function captureGlitchWarnHtml(ci){
+  if(!ci||ci.verdict!=="suspect") return "";
+  const n=ci.gap_count||0;
+  const what=n?(n+" audio dropout"+(n===1?"":"s")+" detected"):"an audio inconsistency detected";
+  return `<p class="flags-note">&#9888; Possible capture glitch — ${what} while recording. Play the take back; if you hear a click or a skip, please re-record it.</p>`;
+}
+
+function mobileCaptureNoticeHtml(){
+  if(!IS_MOBILE) return "";
+  return `<span style="display:block;margin-top:4px">&#128241; Recording on a phone — phone captures can develop audio dropouts under load. Close other apps, keep this tab in front, and play each take back to check it.</span>`;
+}
+
 // RecQC footer (generated): the page variables the declarations above share.
 let procStatus = null;
 let lastBrowserFingerprint = null;
 let audioCtx = null;
+let lastCaptureBookkeeping = null;
 export const shared = {
   get procStatus() { return procStatus; },
   set procStatus(value) { procStatus = value; },
@@ -186,5 +217,7 @@ export const shared = {
   set lastBrowserFingerprint(value) { lastBrowserFingerprint = value; },
   get audioCtx() { return audioCtx; },
   set audioCtx(value) { audioCtx = value; },
+  get lastCaptureBookkeeping() { return lastCaptureBookkeeping; },
+  set lastCaptureBookkeeping(value) { lastCaptureBookkeeping = value; },
 };
-export { WORKLET_CODE, encodeWav24, getMicConstraints, checkMicProcessing, browserFingerprint, IS_MOBILE };
+export { WORKLET_CODE, encodeWav24, getMicConstraints, checkMicProcessing, browserFingerprint, IS_MOBILE, CAPTURE_INSTRUMENT_VERSION, captureIntegrityReport, captureGlitchWarnHtml, mobileCaptureNoticeHtml };

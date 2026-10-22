@@ -14,14 +14,19 @@
         "getMicConstraints",
         "checkMicProcessing",
         "browserFingerprint",
-        "IS_MOBILE"
+        "IS_MOBILE",
+        "CAPTURE_INSTRUMENT_VERSION",
+        "captureIntegrityReport",
+        "captureGlitchWarnHtml",
+        "mobileCaptureNoticeHtml"
       ],
       "shared": [
         "procStatus",
         "lastBrowserFingerprint",
-        "audioCtx"
+        "audioCtx",
+        "lastCaptureBookkeeping"
       ],
-      "sha256": "dd0619cf374adeb60cb976095e113d141e7b5c5eb169332a8b46423f1bd513cc"
+      "sha256": "ac2ec3c088e1b63a9147b89e1c4da092b77595e356038c8cf922540265002478"
     }
   ]
 }

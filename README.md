@@ -8,6 +8,7 @@ A recording-chain and room check that runs in your browser, on your machine. It 
 
 - Runs the platform's exact Python measurement cores in the browser (Pyodide), vendored with their source commit and hash.
 - Checks that the browser's microphone processing (gain control, noise suppression, echo cancellation) is really off before measuring.
+- Checks every take for audio frames dropped in the browser's capture path, with the platform's own capture-continuity check (warn-only, as on the platform).
 - Measures the room's reverberation time (RT60) from claps, collecting claps the way the platform does.
 - Prints the audio tier ceiling, the lowest of its format, environment and device caps, with each measurement's distance from the nearest threshold.
 - Scores each room check under a selectable profile (the platform's Platform Band by default, or your own yaml) and stamps every result with the profile's hash.
@@ -32,6 +33,8 @@ and open <http://localhost:8000> in Chrome. A page opened straight from the file
 8. Read the result at the top: the tier ceiling, the three caps that set it and why, and under each take every measurement on its band rail, with how far it sits from the nearest threshold. If a check failed its gate there is no ceiling, as on the platform; the page says which check, and what the ceiling would have been.
 
 The live meter and the mic check stay pinned on the left (on a phone, across the top) while you work down the page.
+
+Every take also carries the platform's capture-continuity check. While recording, the meter counts the audio frames the browser hands it; if any went missing, or the count does not add up, the take reads "suspect" and shows the platform's warning to play it back and re-record if you hear a click or a skip. As on the platform it is a warning only: it does not gate a check or move the ceiling. On a phone the mic check also shows the platform's notice that phone captures can drop audio under load.
 
 Each room check has its own "Scored under" selector: the Default band, which is what the live platform runs (its Platform Band profile, the name its records carry), or your own yaml (see [Profiles](#profiles)). Changing a profile re-scores the takes you already have; a new quiet-room profile re-scores the claps too, since they read its room tone.
 
@@ -122,7 +125,7 @@ To ship a fork with another default phrase, change the text inside `<textarea id
 On a quiet room that passes, Save noise profile writes two files:
 
 - `recqc_<date>_<time>_np.wav`: the room tone, trimmed to its longest unbroken quiet stretch (the stretch the floor was measured on), 48 kHz, 24-bit mono. This is the room-tone input a denoiser's noise profile takes.
-- `recqc_<date>_<time>_np.json`: the noise core's record (floor in dBA and dBFS, SNR, speech level, disposition, the thresholds and their hash, durations, versions), plus what the browser reported about the capture: the three processing flags, the track and context sample rates, the browser fingerprint and the device class.
+- `recqc_<date>_<time>_np.json`: the noise core's record (floor in dBA and dBFS, SNR, speech level, disposition, the thresholds and their hash, durations, versions), plus what the browser reported about the capture: the three processing flags, the track and context sample rates, the browser fingerprint, the device class, and the room-tone take's capture-continuity report (verdict and frame counts).
 
 Chrome asks for a folder and writes both there; other browsers download them. The record carries no spectrum and no hum flags; a denoiser that needs them measures them from the WAV.
 
@@ -158,7 +161,7 @@ The measurement and policy code is not reimplemented here; it is the platform's 
 - the level check, quiet-room and RT60 cores and their profile yamls, and the screening pipeline's stage gates, copied whole;
 - the platform's provenance check (`verify_samples`) and tier names, copied whole;
 - the environment and device caps, the working-copy rule, clap collection and the lo-fi band rule, lifted function by function from the platform's code, verbatim;
-- the capture code (the mic constraints, the processing check, the meter worklet, the WAV encoder), lifted from the platform's page into `app/platform_capture.mjs`.
+- the capture code (the mic constraints, the processing check, the meter worklet, the WAV encoder, and the capture-continuity check with its two notices), lifted from the platform's page into `app/platform_capture.mjs`.
 
 `py/cores/VENDORED.json` and `app/VENDORED.json` record each file's source, commit and sha256. The Python side refuses to start if any vendored file differs from its hash, so the page never scores with an edited copy. The Pyodide runtime and its wheels (Pyodide 314.0.7, plus pyloudnorm 0.1.1 and the `future` package it needs, which Pyodide does not carry) are vendored the same way by `py/vendor_pyodide.sh` into `pyodide/`, so the page loads nothing from any CDN.
 
@@ -181,6 +184,7 @@ Each test prints PASS, FAIL or NOT RUN per check and exits 0, 1 or 2; NOT RUN is
 ## Known limitations
 
 - **Chrome or Chromium only is verified.** Other browsers run, with a note that the capture chain is unverified. Safari and some Firefox versions do not report whether their mic processing is off, so the mic check reads unverified and the format ceiling is held at 3.
+- **The continuity check sees only the browser's own audio path.** A dropout below the browser (an audio interface, a phone or the operating system splicing audio at the device level) arrives with its frames contiguous and reads clean. That is why phones also get a standing notice, as on the platform.
 - **Processing before the browser is invisible.** macOS Voice Isolation, an interface's onboard DSP or a virtual audio device can process the signal before Chrome sees it, and no readback shows it. A hard-limited spectrum usually reads indeterminate in the format check, which already holds the ceiling at 3.
 - **A 5 s take can read a lower format verdict than a long one.** On a built-in laptop mic, the first 5 s of a 20 s read came out `confirmed_resampled` while the whole take came out native. Check your own chain with `tests/verdict_length.py` and a long take from `?debug`.
 - **The automated page test runs at 44.1 kHz only.** Chrome's fake mic runs at 44.1 kHz, so `tests/headless_capture.py` covers that path; the 48 kHz path was checked by hand.

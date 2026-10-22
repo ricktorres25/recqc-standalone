@@ -188,6 +188,10 @@
                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-negative-ink) 45%, transparent); } /* taste-skill-ignore: an inset 1px edge, not a shadow */
     .notice strong { display: block; font-size: 16px; margin-bottom: 2px; }
     .card > .notice { padding: 14px 16px; }
+    /* The platform's capture-glitch warning (captureGlitchWarnHtml, lifted): the warning pale pair. */
+    .flags-note { margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-card);
+                  background: var(--pill-warning-bg); color: var(--pill-warning-ink);
+                  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-warning-ink) 45%, transparent); } /* taste-skill-ignore: an inset 1px edge, not a shadow */
     .step.skipped .step-head p, .step.skipped .profile-row, .step.skipped .result, .step.skipped .fine { opacity: 0.5; }
     .profile-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
     .profile-row label { color: var(--muted); }
@@ -426,7 +430,8 @@
   </script>
   <script type="module">
     import { Capture, ClapCounter, CLAP_RANGE_DB, bypassState, MAX_SECONDS } from "./app/capture.mjs";
-    import { encodeWav24 } from "./app/platform_capture.mjs";
+    import { encodeWav24, captureIntegrityReport, captureGlitchWarnHtml, mobileCaptureNoticeHtml,
+             shared } from "./app/platform_capture.mjs";
 
     const $ = (id) => document.getElementById(id);
     const params = new URLSearchParams(location.search);
@@ -630,7 +635,35 @@
         $("readback").append(el("p", "This browser does not report every flag, so the measurements run but the " +
           "format ceiling is held at 3.", "warn small"));
       }
+      // The platform's phone notice (lifted), for drops below the browser the frame count cannot see.
+      if (mobileCaptureNoticeHtml()) $("readback").append(fromHtml(mobileCaptureNoticeHtml(), "p", "warn small"));
       return state;
+    }
+
+    // ---- Capture continuity (the platform's capint-1, lifted) ----
+    // The worklet counts each take's audio frames, and the platform's captureIntegrityReport
+    // turns the count into clean, suspect (a gap, or recorded and expected frames that
+    // differ) or unavailable (no count came back, never read as clean). Warn-only, as on
+    // the platform: it gates nothing and moves no cap. It sees only the browser's own audio
+    // path; a splice below the browser arrives frame-contiguous and reads clean.
+    function fromHtml(html, tag, cls) { const e = el(tag, null, cls); e.innerHTML = html; return e; }
+    function continuityRow(ci, label) {
+      const verdict = (ci && ci.verdict) || "unavailable";
+      const frames = ci && `${ci.frames_recorded} of ${ci.frames_expected} frames recorded`;
+      const detail = verdict === "clean" ? `${frames}, no gaps`
+        : verdict === "suspect" ? `${ci.gap_count} gap${ci.gap_count === 1 ? "" : "s"}, ${ci.dropped_frames} frames ` +
+                                  `dropped (${frames}). Warn-only, as on the platform: it moves no cap`
+        : "this browser returned no frame count for the take, so nothing is known either way";
+      const tr = row([label, verdict, detail]);
+      tr.children[1].className = { clean: "pass", suspect: "warn" }[verdict] || "muted";
+      return tr;
+    }
+    // A card's table with a continuity row per take, then the platform's warning for any suspect take.
+    function appendWithContinuity(box, table, takes) {
+      takes.forEach((tk, i) => table.append(continuityRow(tk.continuity,
+        takes.length > 1 ? `Capture continuity, take ${i + 1}` : "Capture continuity")));
+      box.append(table);
+      for (const tk of takes) if (captureGlitchWarnHtml(tk.continuity)) box.append(fromHtml(captureGlitchWarnHtml(tk.continuity), "div"));
     }
 
     // ---- This run: the takes scored since the mic was turned on ----
@@ -886,7 +919,7 @@
       if (r.working_copy && r.working_copy.derived) {
         table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
       }
-      box.append(table);
+      appendWithContinuity(box, table, [take]);
 
       if (DEBUG) box.append(takeLink(take, "level"));
       const details = el("details");
@@ -1079,7 +1112,7 @@
       if (r.working_copy && r.working_copy.derived) {
         table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
       }
-      box.append(table);
+      appendWithContinuity(box, table, [take]);
 
       if (reply.np) {
         const save = el("button", "Save noise profile"), note = el("span", "", "fine"), p = el("p");
@@ -1183,7 +1216,7 @@
       if (r.working_copy && r.working_copy.derived) {
         table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
       }
-      box.append(table);
+      appendWithContinuity(box, table, takes);
 
       // More claps, exactly when the platform would ask for them (clap_collection_state).
       const cc = r.clap_collection;
@@ -1579,7 +1612,8 @@
         profile: profile.text != null ? { ...reply.result.profile, file: profile.name } : reply.result.profile,
         capture: { mic_check: bypassState(rb), agc: rb.agc ?? null, ns: rb.ns ?? null, ec: rb.ec ?? null,
                    track_sample_rate: rb.track_sample_rate, context_sample_rate: rb.context_sample_rate,
-                   take_sample_rate: take.rate, browser: rb.browser, is_mobile: rb.is_mobile },
+                   take_sample_rate: take.rate, browser: rb.browser, is_mobile: rb.is_mobile,
+                   continuity: take.continuity || null },
       } };
       return [[names.wav, new Blob([reply.np], { type: "audio/wav" })],
               [names.json, new Blob([JSON.stringify(record, null, 2) + "\n"], { type: "application/json" })]];
@@ -1696,7 +1730,37 @@
         const levelLine = `${bypassState(readback)}, ${out.take.rate} Hz, ` +
           `${(out.take.samples.length / out.take.rate).toFixed(1)} s, format ` +
           `${r.provenance.spectral_verdict} (up to ${r.format_ceiling}), true peak ` +
-          `${fmt(r.level.true_peak_dbtp)} dBTP, ${fmt(r.level.integrated_lufs)} LUFS, level gate ${r.level_gate[0]}`;
+          `${fmt(r.level.true_peak_dbtp)} dBTP, ${fmt(r.level.integrated_lufs)} LUFS, level gate ${r.level_gate[0]}, ` +
+          `capture continuity ${out.take.continuity && out.take.continuity.verdict}`;
+        // Capture continuity (capint-1): the take's verdict is computed and shown on its card.
+        const ci = out.take.continuity;
+        const rowOf = (box, label) => [...box.querySelectorAll("tr")].find((tr) => tr.children[0].textContent === label);
+        const ciRow = rowOf($("result"), "Capture continuity");
+        if (!(ci && ci.instrument_version === "capint-1" && ciRow && ciRow.children[1].textContent === ci.verdict)) {
+          return done("SELFTEST FAIL: the level take's capture continuity " + JSON.stringify(ci));
+        }
+        // A fake mic never drops a frame, so the platform's rule is checked on made-up counts:
+        // even counts are clean, a gap or a count mismatch alone is suspect, no count is unavailable.
+        const verdictOf = (bk) => { shared.lastCaptureBookkeeping = bk; const v = captureIntegrityReport(); shared.lastCaptureBookkeeping = null; return v; };
+        const even = { frames_expected: 48000, frames_recorded: 48000, gap_count: 0, dropped_frames: 0 };
+        const gap = { ...even, frames_recorded: 47872, gap_count: 1, dropped_frames: 128 };
+        for (const [bk, want, words] of [[even, "clean", ""], [gap, "suspect", "1 audio dropout detected"],
+                                         [{ ...even, frames_recorded: 47872 }, "suspect", "an audio inconsistency detected"],
+                                         [null, "unavailable", ""]]) {
+          const got = verdictOf(bk), warn = captureGlitchWarnHtml(got);
+          if (got.verdict !== want || (words ? !warn.includes(words) : warn !== "")) {
+            return done(`SELFTEST FAIL: capture continuity on ${JSON.stringify(bk)} read ${got.verdict}, warning "${warn}"`);
+          }
+        }
+        // The card shows one row per take and the platform's warning under a suspect take only.
+        const probe = el("div");
+        appendWithContinuity(probe, el("table"), [{ continuity: verdictOf(gap) }, { continuity: verdictOf(even) }]);
+        const warns = probe.querySelectorAll(".flags-note");
+        if (!(rowOf(probe, "Capture continuity, take 1").children[1].textContent === "suspect"
+              && rowOf(probe, "Capture continuity, take 2").children[1].textContent === "clean"
+              && warns.length === 1 && warns[0].textContent.includes("Possible capture glitch — 1 audio dropout detected"))) {
+          return done("SELFTEST FAIL: a suspect take's card " + probe.textContent.slice(0, 300));
+        }
         if (r.level_gate[0] !== "PASS") {
           return done(SELFTEST_FULL ? `SELFTEST FAIL: the level gate did not pass, so the quiet room could not run: ${levelLine}`
                                     : `SELFTEST PASS: ${levelLine}; the quiet room needs a level PASS, so it did not run`);
@@ -1718,7 +1782,9 @@
           const head = new TextDecoder().decode(await wavBlob.slice(0, 12).arrayBuffer());
           const saved = JSON.parse(await jsonBlob.text());
           if (!(head.startsWith("RIFF") && head.endsWith("WAVE") && saved.verdict === "PASS"
-                && saved.recqc.saved_as.wav === wavName && saved.recqc.capture.mic_check)) {
+                && saved.recqc.saved_as.wav === wavName && saved.recqc.capture.mic_check
+                && saved.recqc.capture.continuity && saved.recqc.capture.continuity.instrument_version === "capint-1"
+                && rowOf($("noise-result"), "Capture continuity"))) {
             return done("SELFTEST FAIL: the save payload " + JSON.stringify(saved).slice(0, 400));
           }
           noiseLine += `, saves ${wavName} (${fmt(n.np.duration, 1)} s of room tone) and ${jsonName}`;
@@ -1760,6 +1826,7 @@
           if (!(c && c.rt60 && Array.isArray(c.rt60_gate) && c.clap_collection && c.profile.profile_name === "Platform Band")) {
             return done("SELFTEST FAIL: room reflection " + JSON.stringify(run.clap.reply).slice(0, 400));
           }
+          if (!rowOf($("clap-result"), "Capture continuity")) return done("SELFTEST FAIL: the clap take has no capture continuity row");
           const drawn = $("clap-result").querySelectorAll(".wave .clap-mark").length;
           if (drawn !== c.clap_collection.detected) {
             return done(`SELFTEST FAIL: ${drawn} clap marks drawn for ${c.clap_collection.detected} claps detected`);

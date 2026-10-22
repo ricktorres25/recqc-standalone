@@ -28,7 +28,9 @@
 # and, for the page, into app/ with its own manifest app/VENDORED.json:
 #
 #   platform_capture.mjs              <- MAD/Talent Platform/app/static/index.html, only
-#                                        the six capture declarations named in JS_LIFTS
+#                                        the capture declarations named in JS_LIFTS (the
+#                                        mic, meter and encoder code, and the capint-1
+#                                        capture-continuity check with its two notices)
 #
 # It REFUSES, and changes nothing, when a source file is not committed at its repo's
 # HEAD or has uncommitted changes of its own. What it copies is the committed file at
@@ -78,7 +80,7 @@ LIFTS=(
 # One line per lifted JavaScript file:  path under app/ | source folder | path in that repo |
 #                                       declaration names | page variables they share
 JS_LIFTS=(
-  "platform_capture.mjs|Talent Platform|app/static/index.html|WORKLET_CODE,encodeWav24,getMicConstraints,checkMicProcessing,browserFingerprint,IS_MOBILE|procStatus,lastBrowserFingerprint,audioCtx"
+  "platform_capture.mjs|Talent Platform|app/static/index.html|WORKLET_CODE,encodeWav24,getMicConstraints,checkMicProcessing,browserFingerprint,IS_MOBILE,CAPTURE_INSTRUMENT_VERSION,captureIntegrityReport,captureGlitchWarnHtml,mobileCaptureNoticeHtml|procStatus,lastBrowserFingerprint,audioCtx,lastCaptureBookkeeping"
 )
 
 refuse() {
