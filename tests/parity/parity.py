@@ -16,10 +16,11 @@
 #       Five more sets run the page's flow (run_page_corpus: the level take, the
 #       room-tone take only if the level gate passed, the clap take only if the
 #       quiet-room gate passed outside the lo-fi band, then the ceiling and margins)
-#       under each quiet-room profile the page offers: Platform Band, the noise core's
-#       Default (with the RT60 core's built-in, Strict), a user's yaml (the fixture in
-#       this folder), and Platform Band at 44.1 kHz; and once with Forgiving for room
-#       reflection.
+#       under Platform Band (the profile the page offers, as Default band), the noise
+#       core's Default (with the RT60 core's built-in, Strict), a user's yaml (the
+#       fixture in this folder), and Platform Band at 44.1 kHz; and once with Forgiving
+#       for room reflection. The page offers only Platform Band and the user's yaml; the
+#       other profiles stay covered because the runner still accepts them.
 #   P2  CPython against the stored records in each folder's screening_result.json,
 #       defaults only (the June records used them), same tolerances. One difference is
 #       expected and listed, not counted: the live RT60 core is newer than the one that

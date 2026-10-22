@@ -4,144 +4,414 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RecQC Standalone</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%238a8c92%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%3E%3Crect%20x%3D%228.5%22%20y%3D%222.5%22%20width%3D%227%22%20height%3D%2212%22%20rx%3D%223.5%22%20fill%3D%22%234a8ad6%22%20stroke%3D%22%234a8ad6%22%2F%3E%3Cpath%20d%3D%22M5%2011.5a7%207%200%200%200%2014%200%22%2F%3E%3Cpath%20d%3D%22M12%2018.5v3M8.5%2021.5h7%22%2F%3E%3C%2Fsvg%3E">
   <style>
+    /* The page's two faces, vendored in fonts/ (design note D2: nothing loads from the network). */
+    @font-face { font-family: "Public Sans"; src: url("fonts/public-sans-latin-wght-normal.woff2") format("woff2");
+                 font-weight: 100 900; font-display: swap; }
+    @font-face { font-family: "IBM Plex Mono"; src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); /* taste-skill-ignore: the data-terminal style's figure face */
+                 font-weight: 400; font-display: swap; }
+    @font-face { font-family: "IBM Plex Mono"; src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); /* taste-skill-ignore: the data-terminal style's figure face */
+                 font-weight: 500; font-display: swap; }
+
+    /* Data terminal (taste skill app style, seed 1433756977), dark first. Colour sits on data and
+       status only; the accent is only ever a 1px line marking the current selection. */
     :root {
-      --bg: #ffffff; --ink: #1f1f1f; --soft: #5a5a5a; --line: #dddddd; --panel: #f4f4f4;
-      --accent: #0b57d0; --pass: #1e7f3c; --warn: #9a5800; --fail: #b3261e; --bar: #2e7d32;
+      --ground: #171719; --surface: #131217; --raised: #212023; --border: #222224; --rule: #1b1a1f;
+      --edge: #2f3f55;   /* the sections' edge: the accent's hue, held low */
+      --control: #3a3a3e; --text: #ffffff; --muted: #8a8c92; --accent: #4a8ad6; --mark: #f2f2f3;
+      --positive: #5fc39c; --negative: #e5566f; --warning: #d9a441;
+      --pill-positive-bg: #1b2828; --pill-positive-ink: #5fc39c;
+      --pill-negative-bg: #2c1a20; --pill-negative-ink: #e5566f;
+      --pill-warning-bg: #2a2416; --pill-warning-ink: #d9a441;
+      --pill-neutral-bg: #212023; --pill-neutral-ink: #bdbdc0;
+      --primary-bg: #ffffff; --primary-ink: #0a0a0a;
+      --shadow: 0 12px 28px rgba(0, 0, 0, .2);
+      --radius-card: 6px; --radius-control: 999px;
+      --gap: 24px; --pad: 32px; --rail: 296px; --control-height: 34px; --row-height: 42px;
+      --fs-title: 26px; --fs-lead: 32px; --fs-section: 20px; --fs-kpi: 20px; --fs-body: 13px; --fs-small: 12px;
+      --font: "Public Sans", system-ui, sans-serif;
+      /* Every figure is set in the monospace, as the style's chosen face: measurements read as an
+         instrument's columns. */
+      --figures: "IBM Plex Mono", ui-monospace, monospace; /* taste-skill-ignore: the style's figure face */
+      color-scheme: dark;
     }
-    @media (prefers-color-scheme: dark) {
+    @media (prefers-color-scheme: light) {
       :root {
-        --bg: #151515; --ink: #ececec; --soft: #a8a8a8; --line: #343434; --panel: #222222;
-        --accent: #8ab4f8; --pass: #6dd58c; --warn: #f2b84b; --fail: #f28b82; --bar: #6dd58c;
+        --ground: #f9fafb; --surface: #ffffff; --raised: #f1f2f4; --border: #e6e7ea; --rule: #f0f1f3;
+        --edge: #c5d2e4;
+        --control: #cfd1d6; --text: #111111; --muted: #5f6368; --accent: #1d5fbf; --mark: #141414;
+        --positive: #247b50; --negative: #c4242a; --warning: #92400e;
+        --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+        --pill-negative-bg: #ffedea; --pill-negative-ink: #831c1e;
+        --pill-warning-bg: #fffbeb; --pill-warning-ink: #92400e;
+        --pill-neutral-bg: #eeeff1; --pill-neutral-ink: #3d3d3d;
+        --primary-bg: #1d1f20; --primary-ink: #ffffff;
+        --shadow: none;
+        color-scheme: light;
       }
     }
-    body { font-family: -apple-system, system-ui, sans-serif; max-width: 44rem; margin: 2rem auto;
-           padding: 0 1rem; line-height: 1.5; color: var(--ink); background: var(--bg); }
-    h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
-    h2 { font-size: 1.2rem; margin-top: 0; }
-    a { color: var(--accent); }
-    .banner { background: var(--panel); border-left: 4px solid var(--warn); padding: 0.5rem 0.75rem; }
-    .soft, .fine { color: var(--soft); }
-    .fine { font-size: 0.9rem; }
-    .card { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
-    .phrase { font-size: 1.15rem; margin: 0.5rem 0 1rem; padding-left: 0.75rem; border-left: 3px solid var(--line); }
-    .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-    button, select { font: inherit; padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid var(--line);
-             background: var(--panel); color: var(--ink); cursor: pointer; }
-    select { padding: 0.35rem 0.5rem; }
-    button:disabled, select:disabled { opacity: 0.45; cursor: default; }
-    .timer { font-family: ui-monospace, Menlo, monospace; min-width: 4rem; }
-    .meter { position: relative; height: 14px; background: var(--panel); border: 1px solid var(--line);
-             border-radius: 4px; margin: 1rem 0 0.4rem; overflow: hidden; }
-    #bar { height: 100%; width: 0; background: var(--bar); transition: width 50ms linear; }
-    #band { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--ink); border-right: 1px dashed var(--ink);
-            background: color-mix(in srgb, var(--ink) 12%, transparent); pointer-events: none; }
-    #hold { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink);
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ground); color: var(--text); font: 400 var(--fs-body)/1.55 var(--font); }
+    a { color: var(--text); }
+    p { margin: 0; }
+    .num, .timer { font-family: var(--figures); font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .small { font-size: var(--fs-small); }
+    .pass { color: var(--positive); } .warn { color: var(--warning); } .fail { color: var(--negative); }
+
+    /* The frame: the instrument rail pinned on the left, the canvas beside it. The canvas is
+       1440 - 296 = 1144 wide, less two 32 px gutters: 1080 of content. */
+    .app { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); min-height: 100vh; }
+    .rail { position: sticky; top: 0; height: 100vh; overflow-y: auto; border-right: 1px solid var(--edge);
+            padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+    .instrument, .rail-more { display: flex; flex-direction: column; gap: 16px; }
+    .rail-more { flex: 1; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+    .brand svg { flex: none; }
+    #engine { font-size: var(--fs-small); color: var(--muted); overflow-wrap: anywhere; }
+    #engine.fail { color: var(--negative); }
+    .meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .meter-head .num { font-size: var(--fs-kpi); }
+    .meter-head .unit { font-size: var(--fs-small); color: var(--muted); }
+    .meter { position: relative; height: 18px; background: var(--raised); border-radius: 2px; overflow: hidden; }
+    #band-label { position: absolute; left: 4px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 11px;
+                  color: var(--text); white-space: nowrap; }
+    #bar { height: 100%; width: 0; background: var(--positive); transition: width 50ms linear; }
+    #band { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--mark) 14%, transparent);
+            box-shadow: inset 1px 0 var(--mark), inset -1px 0 var(--mark); pointer-events: none; } /* taste-skill-ignore: an inset 1px edge, not a shadow */
+    #hold { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--mark);
             opacity: 0; pointer-events: none; }
+    .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .kv { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; row-gap: 6px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; text-align: right; }
+    .rail h2 { font-size: var(--fs-small); font-weight: 500; color: var(--muted); margin: 0 0 8px; }
     /* The platform's clap cue (its canvas fix #9): it pulses while claps record and the
        peak-hold line is not pinned by a clap. */
-    .clap-cue { display: none; align-items: center; justify-content: center; gap: 8px; margin: 0.75rem 0;
-                padding: 0.4rem 0; border: 1px dashed var(--line); border-radius: 6px; color: var(--accent);
-                font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.18em; }
+    .clap-cue { display: none; justify-content: center; padding: 8px 0; border-radius: var(--radius-card);
+                background: var(--raised); color: var(--text); font-weight: 600; letter-spacing: 0.08em; }
     .clap-cue.show { display: flex; animation: clapPulse 0.9s ease-in-out infinite; }
-    @keyframes clapPulse { 0%, 100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+    @keyframes clapPulse { 0%, 100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
     @media (prefers-reduced-motion: reduce) { .clap-cue.show { animation: none; } }
-    .ceiling-line { font-size: 1.25rem; font-weight: 600; margin: 0.25rem 0 0.5rem; }
-    .greyed { color: var(--soft); font-weight: 600; }
-    .readings { font-family: ui-monospace, Menlo, monospace; font-size: 0.85rem; margin: 0 0 0.75rem; }
-    .pass { color: var(--pass); } .warn { color: var(--warn); } .fail { color: var(--fail); }
-    table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
-    th, td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
-    th { font-weight: 600; }
+    .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+    .links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
+    .canvas { padding: 32px var(--pad) 64px; display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+    .crumb { color: var(--muted); font-size: 14px; }
+    h1 { font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em; margin: 4px 0 6px;
+         display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .subline { color: var(--muted); font-size: 14px; max-width: 72ch; }
+    .card { background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-card);
+            box-shadow: var(--shadow); } /* taste-skill-ignore: the data-terminal style's card shadow, its one depth cue */
+    .card > * { padding-left: var(--pad); padding-right: var(--pad); }
+    .card > .result, .card > #ceiling { padding-left: 0; padding-right: 0; }
+    .card h2 { font-size: var(--fs-section); font-weight: 400; color: var(--muted); margin: 0; }
+
+    .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: 999px;
+            font-size: var(--fs-small); font-weight: 500; white-space: nowrap; flex: none;
+            background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+    .pill.positive { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+    .pill.negative { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+    .pill.warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+    h1 .pill { height: 26px; font-size: 14px; }
+
+    /* The ceiling: what this chain can earn, and the cap that holds it. */
+    .ceiling-card { padding: 24px 0; display: flex; flex-direction: column; gap: 12px; }
+    .ceiling-top { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 3fr); gap: var(--gap); align-items: end; }
+    .lead { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; }
+    .lead .num { font-size: var(--fs-lead); font-weight: 500; line-height: 1; }
+    .lead .name { font-size: var(--fs-section); }
+    .lead.greyed .num, .lead.greyed .name { color: var(--muted); }
+    .ladder { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .rung { background: var(--raised); height: 88px; padding: 10px 12px; display: flex; flex-direction: column;
+            justify-content: space-between; color: var(--muted); border-radius: 2px; }
+    .rung .rung-name { font-size: 16px; font-weight: 500; }
+    .rung .rung-caps { display: flex; flex-wrap: wrap; gap: 4px; }
+    .rung .rung-caps > span { font-size: var(--fs-small); padding: 1px 8px; border-radius: 999px; background: var(--surface);
+                              color: var(--text); white-space: nowrap; }
+    .rung-caps .short, .ladder-key { display: none; }
+    .rung.above { background: transparent; box-shadow: inset 0 0 0 1px var(--border); } /* taste-skill-ignore: an inset 1px edge, not a shadow */
+    .rung.at { background: var(--mark); color: var(--surface); }
+    .rung.at .rung-name { font-weight: 700; }
+    .rung.at .rung-caps > span { background: var(--surface); color: var(--text); }
+    .rung.at.greyed { background: var(--control); color: var(--text); }
+    .finding { font-size: 18px; line-height: 1.45; max-width: 64ch; }
+    .caps { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 24px; border-top: 1px solid var(--rule); }
+    .caps > div { padding: 16px var(--pad) 0; border-left: 1px solid var(--rule); }
+    .caps > div:first-child { border-left: 0; }
+    .caps .num { font-size: var(--fs-kpi); }
+    .caps .label { color: var(--muted); }
+    .ceiling-notes { margin-top: 20px; display: flex; flex-direction: column; gap: 4px; }
+
+    /* The three takes as one divided strip; the next one carries the style's 1px accent line. */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); }
+    .step-cell { padding: 16px var(--pad); border-left: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px; }
+    .step-cell:first-child { border-left: 0; }
+    .step-cell .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .step-cell h3 { font-size: 16px; font-weight: 600; margin: 0; position: relative; }
+    .step-cell.next h3::before { content: ""; position: absolute; left: 0; right: 0; top: -17px; height: 1px; background: var(--accent); }
+    .step-cell .figure { font-family: var(--figures); font-variant-numeric: tabular-nums; }
+
+    /* One take: what to do, its controls, then its numbers. */
+    .step { padding: 24px 0; display: flex; flex-direction: column; gap: 16px; }
+    .step-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--gap); flex-wrap: wrap; }
+    .step-head > div:first-child { flex: 1 1 380px; display: flex; flex-direction: column; gap: 6px; }
+    .step-head h2 { color: var(--text); font-weight: 600; font-size: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .phrase { font: inherit; font-size: 18px; line-height: 1.45; width: 100%; max-width: 64ch; display: block; resize: none;
+              overflow: hidden; color: var(--text); background: transparent; border: 1px solid var(--control);
+              border-radius: var(--radius-card); padding: 10px 12px; }
+    .phrase:hover { border-color: var(--muted); }
+    .phrase-field { display: block; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    button.link { height: auto; padding: 0; border: 0; background: none; color: var(--text); text-decoration: underline;
+                  font-size: inherit; }
+    button, select { font: inherit; font-size: var(--fs-body); height: var(--control-height); padding: 0 16px;
+                     border-radius: var(--radius-control); border: 1px solid var(--control); background: transparent;
+                     color: var(--text); cursor: pointer; }
+    select { padding: 0 12px; }
+    button.primary { background: var(--primary-bg); color: var(--primary-ink); border-color: var(--primary-bg); }
+    button:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--muted); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled, select:disabled { opacity: 0.5; cursor: default; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .timer { color: var(--muted); min-width: 4.5rem; text-align: right; }
+    .notice { margin: 0 var(--pad); padding: 14px 16px; border-radius: var(--radius-card); font-size: 14px;
+              background: var(--pill-warning-bg); color: var(--pill-warning-ink);
+              box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-warning-ink) 45%, transparent); } /* taste-skill-ignore: an inset 1px edge, not a shadow */
+    .notice.negative { background: var(--pill-negative-bg); color: var(--pill-negative-ink);
+                       box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-negative-ink) 45%, transparent); } /* taste-skill-ignore: an inset 1px edge, not a shadow */
+    .notice strong { display: block; font-size: 16px; margin-bottom: 2px; }
+    .card > .notice { padding: 14px 16px; }
+    .step.skipped .step-head p, .step.skipped .profile-row, .step.skipped .result, .step.skipped .fine { opacity: 0.5; }
+    .profile-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .profile-row label { color: var(--muted); }
+    .status:empty, .fine:empty { display: none; }
+    .fine { font-size: var(--fs-small); color: var(--muted); }
+
+    /* Each take as its waveform, drawn from its own samples. */
+    .wave { display: flex; flex-direction: column; gap: 4px; }
+    .wave svg { display: block; width: 100%; height: 88px; background: var(--raised); border-radius: 2px; }
+    .wave .env { fill: var(--mark); opacity: 0.85; }
+    .wave .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+    .wave .seam { stroke: var(--text); stroke-width: 1; }
+    .wave .clap-mark { stroke-width: 3; }
+    .wave .clap-mark.usable { stroke: var(--positive); }
+    .wave .clap-mark.nofit { stroke: var(--warning); }
+    .wave .clap-mark.invalid { stroke: var(--negative); }
+    .wave-controls { display: flex; align-items: center; gap: 8px; }
+    .wave-controls button.play { height: 28px; padding: 0 14px; font-size: var(--fs-small); }
+
+    .wave-plot { position: relative; cursor: pointer; }
+    .playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: var(--accent);
+                pointer-events: none; }
+    .playhead::before { content: ""; position: absolute; top: -6px; left: -5px; border: 6px solid transparent;
+                        border-top-color: var(--accent); border-bottom: 0; }
+    .wave-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: var(--figures); }
+    .wave-key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-small); color: var(--muted); }
+    .wave-key i { display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 6px; }
+
+    /* Each measurement on its band rail: the selected profile's bands, a mark at the value. */
+    .metrics { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
+    .metric { display: grid; grid-template-columns: minmax(150px, 1.1fr) 120px minmax(160px, 2fr) minmax(150px, 1.2fr);
+              gap: 16px; align-items: center; padding: 10px var(--pad); border-bottom: 1px solid var(--rule); }
+    .metric .name small { display: block; color: var(--muted); font-size: var(--fs-small); }
+    .metric .value { text-align: right; font-family: var(--figures); font-variant-numeric: tabular-nums; }
+    .metric .value .unit { color: var(--muted); font-size: var(--fs-small); margin-left: 4px; }
+    .metric .margin { color: var(--muted); font-size: var(--fs-small); font-family: var(--figures); }
+    .rail-bands { position: relative; display: flex; height: 22px; }
+    .rail-bands > span { background: var(--raised); color: var(--muted); font-size: 11px; display: flex; align-items: center;
+                         justify-content: center; overflow: hidden; white-space: nowrap; min-width: 0;
+                         box-shadow: inset -2px 0 var(--surface); } /* taste-skill-ignore: an inset 2px seam between bands, not a shadow */
+    .rail-bands > span:last-of-type { box-shadow: none; } /* taste-skill-ignore: the last band has no seam */
+    .rail-bands > span.positive { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+    .rail-bands > span.warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+    .rail-bands > span.negative { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+    .rail-bands > i { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--mark); }
+
+    /* The facts beside the numbers: gates, formats, profiles. */
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; vertical-align: top; padding: 10px 16px 10px 0; border-bottom: 1px solid var(--rule); }
+    th:first-child, td:first-child { padding-left: var(--pad); width: 220px; }
+    th:last-child, td:last-child { padding-right: var(--pad); }
+    th { font-weight: 400; color: var(--muted); font-size: var(--fs-small); }
     td { overflow-wrap: anywhere; }
-    pre { background: var(--panel); padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+    td:nth-child(2) { white-space: nowrap; }
+    .result { display: flex; flex-direction: column; gap: 16px; }
+    .result:empty { display: none; }
+    .result > * { padding-left: var(--pad); padding-right: var(--pad); }
+    .result > .metrics, .result > table { padding: 0; }
+    .ceiling-top, .ceiling-notes, #ceiling > p { padding: 0 var(--pad); }
+    #ceiling > .finding { margin-top: 20px; }
+    details summary { cursor: pointer; color: var(--muted); }
+    pre { background: var(--raised); padding: 12px; overflow-x: auto; font-size: var(--fs-small); border-radius: var(--radius-card);
+          font-family: var(--figures); }
+
+    /* The tablet and the phone: the rail folds into a pinned instrument bar over one column. */
+    @media (max-width: 900px) {
+      .app { display: flex; flex-direction: column; }
+      .rail { display: contents; }
+      /* The pinned bar stays short: the name and the mic switch, one status line, the meter. */
+      .instrument { position: sticky; top: 0; z-index: 5; background: var(--ground); padding: 10px 16px;
+                    border-bottom: 1px solid var(--edge); display: grid; grid-template-columns: 1fr auto;
+                    gap: 6px 12px; align-items: center; }
+      .instrument .rail-detail, .instrument .scale { display: none; }
+      .instrument #arm { grid-row: 1; grid-column: 2; }
+      .instrument #engine, .instrument .meter-wrap, .instrument .clap-cue { grid-column: 1 / -1; }
+      .instrument #engine { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .meter-head { margin-bottom: 4px; }
+      .rail-more { order: 2; padding: 24px 16px 40px; border-top: 1px solid var(--edge); }
+      .canvas { order: 1; padding: 20px 16px 40px; }
+      .ceiling-top { grid-template-columns: 1fr; }
+      .metric { grid-template-columns: 1fr auto; row-gap: 6px; }
+      .metric .rail-bands { grid-column: 1 / -1; }
+      .metric .margin { grid-column: 1 / -1; }
+    }
+    @media (max-width: 640px) {
+      :root { --pad: 16px; }
+      /* Fact tables become two-line rows: the check and its result, then the detail. */
+      .result table, .result tr, .result td { display: block; }
+      .result table tr:first-child { display: none; }
+      .result tr { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 10px var(--pad);
+                   border-bottom: 1px solid var(--rule); }
+      .result td, .result td:first-child, .result td:last-child { padding: 0; border: 0; width: auto; }
+      .result td:nth-child(3) { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-small); margin-top: 4px; }
+      .metric .rail-bands:empty, .metric .margin:empty { display: none; }
+      .caps, .steps { grid-template-columns: 1fr; }
+      /* The ladder stands up on a phone: Hi-fi at the top, each rung's caps on its right. */
+      .ladder { display: flex; flex-direction: column-reverse; }
+      .rung { height: 48px; flex-direction: row; align-items: center; }
+      .rung .rung-name { white-space: nowrap; }
+      .rung-caps .long { display: none; }
+      .rung-caps .short { display: inline; }
+      .ladder-key { display: block; margin-top: 6px; }
+      .caps > div, .step-cell { border-left: 0; border-top: 1px solid var(--rule); }
+      .caps > div { padding-bottom: 12px; }
+      .step-cell.next h3::before { display: none; }
+      .step-cell.next { box-shadow: inset 1px 0 var(--accent); } /* taste-skill-ignore: an inset 1px edge, not a shadow */
+      th:first-child, td:first-child { width: 120px; }
+      button, select { height: 44px; }
+    }
   </style>
 </head>
 <body>
-  <h1>RecQC Standalone</h1>
-  <p class="banner">In development: the level check, the quiet room, the room-reflection check and the tier ceiling run. Installing it as an app, for offline use, comes in a later milestone.</p>
-  <p>A recording-chain check that runs in your browser, on your machine: the audio side of the MAD collection platform's Rec QC, scored by the platform's own measurement cores. Nothing is uploaded.</p>
-  <p id="browser-note" class="warn" hidden>This browser is not Chrome or Chromium, so the capture chain is unverified.</p>
-  <p id="engine" class="soft" aria-live="polite">Starting the analysis engine...</p>
-
-  <section class="card" aria-labelledby="level-title">
-    <h2 id="level-title">Set your level</h2>
-    <p>Read this, or anything else, for about five seconds:</p>
-    <p class="phrase">The busy port keeps shipping fresh produce, but the price still surprises most customers.</p>
-    <div class="controls">
+<div class="app">
+  <aside class="rail" aria-label="Live instrument">
+    <div class="instrument">
+      <div class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="2.5" width="7" height="12" rx="3.5" fill="var(--accent)" stroke="var(--accent)"/><path d="M10.6 6.5h2.8M10.6 9.5h2.8" stroke="var(--surface)" stroke-width="1.4"/><path d="M5 11.5a7 7 0 0 0 14 0"/><path d="M12 18.5v3M8.5 21.5h7"/></svg>
+        <span>RecQC</span>
+      </div>
+      <p id="engine" aria-live="polite">Starting the analysis engine...</p>
+      <div class="meter-wrap">
+        <div class="meter-head"><span class="muted">Live peak</span><span><span id="peak-val" class="num">-</span> <span class="unit">dBFS</span></span></div>
+        <div class="meter" aria-hidden="true"><div id="bar"></div><div id="band" hidden><span id="band-label"></span></div><div id="hold"></div></div>
+        <div class="scale num" aria-hidden="true"><span>-60</span><span>-40</span><span>-20</span><span>0</span></div>
+      </div>
+      <dl id="readings" class="kv rail-detail">
+        <dt>Max true peak</dt><dd><span id="tp-val" class="num">-</span> <span class="muted small">dBTP</span></dd>
+        <dt>Momentary</dt><dd><span id="mom-val" class="num">-</span> <span class="muted small">LUFS</span></dd>
+        <dt>Integrated</dt><dd><span id="int-val" class="num">-</span> <span class="muted small">LUFS</span></dd>
+      </dl>
+      <div id="clap-cue" class="clap-cue" aria-hidden="true">CLAP NOW</div>
       <button id="arm">Turn on the mic</button>
-      <button id="record" disabled>Record</button>
-      <button id="stop" disabled>Stop</button>
-      <span id="timer" class="timer"></span>
     </div>
-    <div class="meter" aria-hidden="true"><div id="bar"></div><div id="band" hidden></div><div id="hold"></div></div>
-    <p id="readings" class="readings">Live meter: off</p>
-    <p id="readback"></p>
-    <p class="fine">The mic check reads what the browser reports. It cannot see processing before the browser, such as macOS Voice Isolation.</p>
-    <div id="result" aria-live="polite"></div>
-  </section>
-
-  <section class="card" aria-labelledby="profile-title">
-    <h2 id="profile-title">Scoring profile</h2>
-    <p>The policy the room checks are scored under, one per check, as on the platform. Platform Band is what the live platform runs. The level check has none: its thresholds are fixed in its core.</p>
-    <div class="controls">
-      <label for="noise-profile">Quiet room</label>
-      <select id="noise-profile">
-        <option value="platform_band">Platform Band</option>
-        <option value="default">Default (the core's built-in)</option>
-      </select>
-      <button id="noise-yaml-pick" type="button">Load your own yaml...</button>
-      <input id="noise-yaml" type="file" accept=".yaml,.yml" hidden>
+    <div class="rail-more">
+      <section aria-labelledby="mic-title">
+        <h2 id="mic-title">Mic check</h2>
+        <div id="readback"><p class="muted">The mic is off.</p></div>
+      </section>
+      <p class="fine">The mic check reads what the browser reports. It cannot see processing before the browser, such as macOS Voice Isolation.</p>
+      <p id="browser-note" class="warn small" hidden>This browser is not Chrome or Chromium, so the capture chain is unverified.</p>
+      <div class="rail-foot">
+        <p class="fine">In development: installing it as an app, for offline use, comes in a later milestone.</p>
+        <p class="links small"><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/README.md">README</a><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/DESIGN_NOTE.md">Design note</a><a href="https://github.com/ricktorres25/recqc-standalone">Repository</a></p>
+      </div>
     </div>
-    <p id="noise-profile-error" class="fail" hidden></p>
-    <p id="noise-profile-info" class="fine">Platform Band. Its thresholds show once the analysis engine is ready.</p>
-    <div class="controls">
-      <label for="rt60-profile">Room reflection</label>
-      <select id="rt60-profile">
-        <option value="platform_band">Platform Band</option>
-        <option value="strict">Strict (the core's built-in)</option>
-        <option value="forgiving">Forgiving</option>
-      </select>
-      <button id="rt60-yaml-pick" type="button">Load your own yaml...</button>
-      <input id="rt60-yaml" type="file" accept=".yaml,.yml" hidden>
-    </div>
-    <p id="rt60-profile-error" class="fail" hidden></p>
-    <p id="rt60-profile-info" class="fine">Platform Band. Its thresholds show once the analysis engine is ready.</p>
-  </section>
+  </aside>
 
-  <section class="card" aria-labelledby="noise-title">
-    <h2 id="noise-title">Quiet room</h2>
-    <p>Stay completely silent and still. Do not adjust your level. Record at least 5 seconds of room tone. Auto-stops at 12 s.</p>
-    <div class="controls">
-      <button id="noise-record" disabled>Record room tone</button>
-      <button id="noise-stop" disabled>Stop</button>
-      <span id="noise-timer" class="timer"></span>
-    </div>
-    <p id="noise-status" class="fine"></p>
-    <div id="noise-result" aria-live="polite"></div>
-  </section>
+  <main class="canvas">
+    <header>
+      <p class="crumb">The audio side of the MAD collection platform's Rec QC</p>
+      <h1>Recording check <span id="ceiling-pill" class="pill">No takes yet</span></h1>
+      <p id="finding" class="subline">Three takes, a few minutes: your level, your room's quiet and its echo, scored in your browser by the platform's own measurement cores. Nothing is uploaded.</p>
+    </header>
 
-  <section class="card" aria-labelledby="clap-title">
-    <h2 id="clap-title">Room reflection</h2>
-    <p>Do not adjust your level. Take 3 steps back from the mic. Clap with cupped hands each time CLAP NOW shows (it hides while the peak-hold line on the meter is pinned by your last clap), and keep going until the recording stops on its own (usually around 6 claps). Aim inside the shaded band on the meter: too hard can distort the reading, too soft may not register, though a few outside it is fine.</p>
-    <div class="controls">
-      <button id="clap-record" disabled>Record claps</button>
-      <button id="clap-stop" disabled>Stop</button>
-      <span id="clap-timer" class="timer"></span>
-    </div>
-    <div id="clap-cue" class="clap-cue" aria-hidden="true">👏 CLAP NOW</div>
-    <p id="clap-status" class="fine"></p>
-    <div id="clap-result" aria-live="polite"></div>
-  </section>
+    <section class="card ceiling-card" aria-labelledby="ceiling-title">
+      <h2 id="ceiling-title">Tier ceiling</h2>
+      <div id="ceiling" aria-live="polite"></div>
+    </section>
 
-  <section class="card" aria-labelledby="ceiling-title">
-    <h2 id="ceiling-title">Tier ceiling</h2>
-    <div id="ceiling" aria-live="polite"><p class="soft">Record a level take to start.</p></div>
-    <p class="fine">The environment cap always applies here. On the platform it is a deploy setting (env_tier_cap_enabled), on by default.</p>
-  </section>
+    <section class="card steps" aria-label="The three takes">
+      <div class="step-cell" id="cell-phrase"></div>
+      <div class="step-cell" id="cell-noise"></div>
+      <div class="step-cell" id="cell-clap"></div>
+    </section>
 
-  <p class="fine">Every number is a property of this capture chain, in this room, now, in uncalibrated dBFS. It says whether a take would clear the platform's gates, not how a recording will score with a listener or a model.</p>
-  <p class="fine"><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/README.md">README</a> · <a href="https://github.com/ricktorres25/recqc-standalone/blob/main/DESIGN_NOTE.md">Design note</a> · <a href="https://github.com/ricktorres25/recqc-standalone">Repository</a></p>
+    <section class="card step" aria-labelledby="level-title">
+      <div class="step-head">
+        <div>
+          <h2 id="level-title">Set your level</h2>
+          <p class="muted">Read this, or anything else, for about five seconds:</p>
+        </div>
+        <div class="controls"><span id="timer" class="timer"></span><button id="stop" disabled>Stop</button><button id="record" disabled>Record</button></div>
+      </div>
+      <label class="phrase-field">
+        <span class="sr-only">The phrase to read</span>
+        <textarea id="phrase" class="phrase" rows="2" maxlength="400" spellcheck="false">The busy port keeps shipping fresh produce, but the price still surprises most customers.</textarea>
+      </label>
+      <p class="fine">Write your own, in any language: the level check measures your voice, not the words. <button id="phrase-reset" type="button" class="link" hidden>Back to the default phrase</button></p>
+      <div id="result" class="result" aria-live="polite"></div>
+    </section>
+
+    <section class="card step" aria-labelledby="noise-title">
+      <div class="step-head">
+        <div>
+          <h2 id="noise-title">Quiet room</h2>
+          <p class="muted">Stay completely silent and still. Do not adjust your level. Record at least 5 seconds of room tone. Auto-stops at 12 s.</p>
+        </div>
+        <div class="controls"><span id="noise-timer" class="timer"></span><button id="noise-stop" disabled>Stop</button><button id="noise-record" disabled>Record room tone</button></div>
+      </div>
+      <div class="profile-row">
+        <label for="noise-profile">Scored under</label>
+        <select id="noise-profile">
+          <option value="platform_band">Default band</option>
+        </select>
+        <button id="noise-yaml-pick" type="button">Load your own yaml...</button>
+        <input id="noise-yaml" type="file" accept=".yaml,.yml" hidden>
+      </div>
+      <p id="noise-profile-error" class="fail" hidden></p>
+      <p id="noise-profile-info" class="fine">Default band. Its thresholds show once the analysis engine is ready.</p>
+      <p id="noise-status" class="status muted"></p>
+      <div id="noise-result" class="result" aria-live="polite"></div>
+    </section>
+
+    <section class="card step" id="clap-card" aria-labelledby="clap-title">
+      <div id="clap-notice" class="notice" role="status" hidden></div>
+      <div class="step-head">
+        <div>
+          <h2 id="clap-title">Room reflection</h2>
+          <p class="muted">Do not adjust your level. Take 3 steps back from the mic. Clap with cupped hands each time CLAP NOW shows (it hides while the peak-hold line on the meter is pinned by your last clap), and keep going until the recording stops on its own (usually around 6 claps). Aim inside the shaded band on the meter: too hard can distort the reading, too soft may not register, though a few outside it is fine.</p>
+        </div>
+        <div class="controls"><span id="clap-timer" class="timer"></span><button id="clap-stop" disabled>Stop</button><button id="clap-record" disabled>Record claps</button></div>
+      </div>
+      <div class="profile-row">
+        <label for="rt60-profile">Scored under</label>
+        <select id="rt60-profile">
+          <option value="platform_band">Default band</option>
+        </select>
+        <button id="rt60-yaml-pick" type="button">Load your own yaml...</button>
+        <input id="rt60-yaml" type="file" accept=".yaml,.yml" hidden>
+      </div>
+      <p id="rt60-profile-error" class="fail" hidden></p>
+      <p id="rt60-profile-info" class="fine">Default band. Its thresholds show once the analysis engine is ready.</p>
+      <p id="clap-status" class="status muted"></p>
+      <div id="clap-result" class="result" aria-live="polite"></div>
+    </section>
+  </main>
+</div>
 
   <script>
     // Chrome will not load the Python runtime from a file:// page, so say so instead of failing silently.
@@ -153,6 +423,7 @@
   </script>
   <script type="module">
     import { Capture, ClapCounter, CLAP_RANGE_DB, bypassState, MAX_SECONDS } from "./app/capture.mjs";
+    import { encodeWav24 } from "./app/platform_capture.mjs";
 
     const $ = (id) => document.getElementById(id);
     const params = new URLSearchParams(location.search);
@@ -232,10 +503,26 @@
       peakSince = Math.max(peakSince, d.peakDb);
       clapCounter.onPeak(d.peakDb, performance.now() / 1000);
     };
-    // The clap range on the meter: the bar's scale runs from PEAK_MIN_DB to 0 dBFS.
-    $("band").style.left = `${((CLAP_RANGE_DB[0] - PEAK_MIN_DB) / -PEAK_MIN_DB * 100).toFixed(1)}%`;
-    $("band").style.width = `${((CLAP_RANGE_DB[1] - CLAP_RANGE_DB[0]) / -PEAK_MIN_DB * 100).toFixed(1)}%`;
-    const db = (v, unit) => (Number.isFinite(v) ? `${v.toFixed(1)} ${unit}` : "-");
+    // The platform's ideal ranges on the meter (its IDEAL_RANGES, updateIdealBand): ideal peaks
+    // for the level take, the clap range for the claps, none for the quiet room. The stage in
+    // focus is the take recording, else the first one not yet passed.
+    const IDEAL_RANGES = { phrase: [-18, -3, "ideal peaks"], clap: [...CLAP_RANGE_DB, "clap range"] };
+    function updateIdealBand(next) {
+      const recording = ["starting", "recording", "stopping"].includes(next);
+      const focus = recording ? takeKind : !levelPassed() ? "phrase" : !noisePassed() ? "noise"
+        : rt60Runs() && !clapPassed() ? "clap" : null;
+      const range = next === "off" ? null : IDEAL_RANGES[focus];
+      $("band").hidden = !range;
+      if (!range) return;
+      $("band").style.left = `${(meterShare(range[0]) * 100).toFixed(1)}%`;
+      $("band").style.width = `${((meterShare(range[1]) - meterShare(range[0])) * 100).toFixed(1)}%`;
+      $("band-label").textContent = range[2];
+    }
+    // One figure on the rail: one decimal, a dash when there is none, and its status colour.
+    function showReading(id, v, cls = "") {
+      $(id).textContent = Number.isFinite(v) ? v.toFixed(1) : "-";
+      $(id).className = `num ${cls}`;
+    }
     const lufsClass = (v) => (!Number.isFinite(v) ? "" : v > LUFS_GREEN_ABOVE ? "pass"
                               : v < LUFS_RED_BELOW ? "fail" : "warn");
     const meterShare = (v) => Math.min(1, Math.max(0, (v - PEAK_MIN_DB) / -PEAK_MIN_DB));
@@ -252,14 +539,12 @@
         const p = Number.isFinite(peakSince) ? peakSince : PEAK_MIN_DB;
         const share = meterShare(p);
         $("bar").style.width = `${(share * 100).toFixed(1)}%`;
-        $("bar").style.background = meter.everClipped ? "var(--fail)" : p > PEAK_WARN_DB ? "var(--warn)" : "var(--bar)";
+        $("bar").style.background = meter.everClipped ? "var(--negative)" : p > PEAK_WARN_DB ? "var(--warning)" : "var(--positive)";
         peakSince = -Infinity;
-        const r = $("readings");
-        r.replaceChildren(
-          `Live meter: peak ${db(meter.peakDb, "dBFS")} · max true peak ${db(meter.maxTpDb, "dBTP")}` +
-          (meter.everClipped ? " (clipped)" : "") + " · momentary ",
-          span(db(meter.momLufs, "LUFS"), lufsClass(meter.momLufs)), " · integrated ",
-          span(db(meter.intLufs, "LUFS"), lufsClass(meter.intLufs)));
+        showReading("peak-val", meter.peakDb);
+        showReading("tp-val", meter.maxTpDb, meter.everClipped ? "fail" : "");
+        showReading("mom-val", meter.momLufs, lufsClass(meter.momLufs));
+        showReading("int-val", meter.intLufs, lufsClass(meter.intLufs));
       }
       const holdImpulse = Number.isFinite(peakHoldDb) && now <= peakHoldUntil && peakHoldDb >= CLAP_CUE_FLOOR_DB;
       $("clap-cue").classList.toggle("show", stage === "recording" && takeKind === "clap" && !holdImpulse);
@@ -270,25 +555,55 @@
     function span(text, cls) { const s = document.createElement("span"); s.textContent = text; if (cls) s.className = cls; return s; }
     function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
 
+    // ---- The phrase: a reading aid the user may rewrite ----
+    // The level core measures the voice, never the words, so any phrase in any language
+    // serves. A rewritten phrase is kept in this browser only, as a convenience.
+    const PHRASE_KEY = "recqc.phrase", DEFAULT_PHRASE = $("phrase").defaultValue;
+    function fitPhrase() { $("phrase").style.height = "auto"; $("phrase").style.height = `${$("phrase").scrollHeight + 2}px`; }
+    function showPhraseReset() { $("phrase-reset").hidden = $("phrase").value === DEFAULT_PHRASE; }
+    try { const saved = localStorage.getItem(PHRASE_KEY); if (saved) $("phrase").value = saved; } catch (e) { /* storage off */ }
+    $("phrase").addEventListener("input", () => {
+      fitPhrase();
+      showPhraseReset();
+      try {
+        if ($("phrase").value === DEFAULT_PHRASE || !$("phrase").value.trim()) localStorage.removeItem(PHRASE_KEY);
+        else localStorage.setItem(PHRASE_KEY, $("phrase").value);
+      } catch (e) { /* storage off */ }
+    });
+    $("phrase-reset").onclick = () => {
+      $("phrase").value = DEFAULT_PHRASE;
+      $("phrase").dispatchEvent(new Event("input"));
+    };
+    showPhraseReset();
+    document.fonts.ready.then(fitPhrase);   // once the fonts have laid it out
+    addEventListener("resize", fitPhrase);
+
     // ---- The mic readback ----
     const word = (v) => (v === false ? "off" : v === true ? "ON" : "not reported");
     const STATE_TEXT = { verified: "verified", unverified: "unverified", active: "processing active" };
     function showReadback(rb) {
       const state = bypassState(rb);
-      const device = rb.is_mobile === true ? "mobile" : rb.is_mobile === false ? "desktop" : "unknown";
-      const p = $("readback");
-      p.replaceChildren(
-        "Mic check: ", span(STATE_TEXT[state], state === "verified" ? "pass" : state === "active" ? "fail" : "warn"),
-        ` (AGC ${word(rb.agc)}, noise suppression ${word(rb.ns)}, echo cancellation ${word(rb.ec)}). ` +
-        `Rates: track ${rb.track_sample_rate ? rb.track_sample_rate + " Hz" : "not reported"}, ` +
-        `recording at ${rb.context_sample_rate} Hz. Device, self-reported: ${device}.`);
+      const device = rb.is_mobile === true ? "mobile" : rb.is_mobile === false ? "desktop" : "not reported";
+      const tone = { verified: "positive", unverified: "warning", active: "negative" }[state];
+      const rows = el("dl", null, "kv");
+      for (const [label, value] of [
+        ["State", span(STATE_TEXT[state], `pill ${tone}`)],
+        ["AGC, NS, EC", `${word(rb.agc)}, ${word(rb.ns)}, ${word(rb.ec)}`],
+        ["Track rate", rb.track_sample_rate ? `${rb.track_sample_rate} Hz` : "not reported"],
+        ["Recording at", `${rb.context_sample_rate} Hz`],
+        ["Device", `${device}, self-reported`]]) {
+        const dd = el("dd");
+        dd.append(value);
+        rows.append(el("dt", label), dd);
+      }
+      $("readback").replaceChildren(rows);
       if (state === "active") {
-        p.append(el("span", " The browser kept its processing on after RecQC asked for it off. A level taken " +
-          "through it would mislead, so this stage does not run. Check the browser's and the system's " +
-          "microphone settings, then turn the mic on again.", "fail"));
+        $("readback").append(el("p", "The browser kept its processing on after RecQC asked for it off. A level taken " +
+          "through it would mislead, so the takes do not run. Check the browser's and the system's " +
+          "microphone settings, then turn the mic on again.", "fail small"));
       } else if (state === "unverified") {
-        p.append(el("span", " This browser does not report every flag, so the measurements run but the " +
-          "format ceiling is held at 3.", "warn"));
+        $("readback").append(el("p", "This browser does not report every flag, so the measurements run but the " +
+          "format ceiling is held at 3.", "warn small"));
       }
       return state;
     }
@@ -298,6 +613,9 @@
     // SNR is measured against that take's speech level (and the gain may have moved),
     // and a new room-tone take clears room reflection, which reads that room tone.
     let run = { level: null, noise: null, clap: null };
+    // The players on each take's waveform (see Playback), and the one sounding now.
+    const players = { phrase: [], noise: [], clap: [] };
+    let playing = null;
     const levelPassed = () => !!(run.level && run.level.reply.ok &&
       (run.level.reply.result.level_gate || [])[0] === "PASS");
     const speechLevel = () => run.level.reply.result.level.speech_level_dba;
@@ -306,6 +624,7 @@
     // The platform's conditional stage (rt60_in_band, Rick's M4 ruling R1): room
     // reflection runs only when the quiet room did not place the room in the lo-fi band.
     const rt60Runs = () => noisePassed() && run.noise.reply.result.rt60_runs === true;
+    const clapPassed = () => !!(run.clap && run.clap.reply.ok && (run.clap.reply.result.rt60_gate || [])[0] === "PASS");
     const LOFI_SKIP = "Not run for this room: the quiet room placed it in the lo-fi band (noise WARN), " +
       "where the platform skips room reflection. The noise alone caps the ceiling at 2 (Lo-fi).";
 
@@ -347,8 +666,33 @@
       $("clap-record").disabled = busy || next !== "armed" || !!clapBlocked;
       $("clap-stop").disabled = !(next === "recording" && takeKind === "clap");
       if ($("clap-more")) $("clap-more").disabled = busy || next !== "armed" || !!clapBlocked;
-      $("band").hidden = !(next === "recording" && takeKind === "clap");
+      updateIdealBand(next);
+      const capturing = ["starting", "recording", "stopping"].includes(next);
+      for (const list of Object.values(players)) for (const pl of list) pl.buttons.forEach((b) => { b.disabled = capturing; });
+      // A room that cannot reach room reflection says why at the top of that card: the lo-fi
+      // band (noise WARN), where the platform skips it, or a quiet room that failed its gate.
+      const noiseResult = run.noise && run.noise.reply.ok ? run.noise.reply.result : null;
+      const notice = noisePassed() && !rt60Runs() ? "lofi" : noiseResult && !noisePassed() ? "failed" : null;
+      $("clap-notice").hidden = !notice;
+      $("clap-card").classList.toggle("skipped", !!notice);
+      if (notice === "lofi") {
+        $("clap-notice").className = "notice";
+        $("clap-notice").replaceChildren(el("strong", "Not run for this room."), "The quiet room placed it in the lo-fi band " +
+          "(noise WARN), where the platform skips room reflection. The noise alone caps the ceiling at 2 (Lo-fi).");
+      } else if (notice === "failed") {
+        const nz = noiseResult.noise || {}, [, reason] = noiseResult.noise_gate || [];
+        $("clap-notice").className = "notice negative";
+        $("clap-notice").replaceChildren(el("strong", "Not run: the quiet room did not pass its gate."),
+          (nz.disposition ? `${nz.disposition}${Number.isFinite(nz.snr_db) ? `, SNR ${fmt(nz.snr_db, 1)} dB` : ""}: ` : "") +
+          `${GATE_REASONS[reason] || reason || "the quiet room failed"}. Quiet the room, then record room tone again.`);
+      }
+      if (notice) $("clap-status").textContent = "";
       for (const core of ["noise", "rt60"]) $(`${core}-profile`).disabled = $(`${core}-yaml-pick`).disabled = !idle;
+      // The screen's one primary action: the mic while it is off, then the next take to record.
+      const primary = next === "off" ? "arm" : active ? null : !levelPassed() ? "record"
+        : !noisePassed() ? "noise-record" : rt60Runs() && !clapPassed() ? "clap-record" : null;
+      for (const id of ["arm", "record", "noise-record", "clap-record"]) $(id).classList.toggle("primary", id === primary);
+      renderSteps();
     }
     setStage("off");
 
@@ -359,8 +703,8 @@
         peakHoldDb = -Infinity;
         $("hold").style.opacity = 0;
         $("bar").style.width = "0";
-        $("readings").textContent = "Live meter: off";
-        $("readback").replaceChildren();
+        for (const id of ["peak-val", "tp-val", "mom-val", "int-val"]) showReading(id, NaN);
+        $("readback").replaceChildren(el("p", "The mic is off.", "muted"));
         $("record").textContent = "Record";
         setStage("off");
         return;
@@ -369,12 +713,13 @@
       try { readback = await capture.arm(); }
       catch (e) {
         capture.disarm();
-        $("readback").replaceChildren(el("span", `The browser did not open the microphone: ${e.message || e.name}`, "fail"));
+        $("readback").replaceChildren(el("p", `The browser did not open the microphone: ${e.message || e.name}`, "fail"));
         setStage("off");
         return;
       }
       // A new run: with the mic reopened, the device or the gain may have changed.
       run = { level: null, noise: null, clap: null };
+      for (const kind of Object.keys(players)) releasePlayers(kind);
       for (const ui of Object.values(TAKE_UI)) { $(ui.result).replaceChildren(); $(ui.timer).textContent = ""; }
       $("record").textContent = "Record";
       $("noise-record").textContent = "Record room tone";
@@ -388,6 +733,7 @@
     function clearAfter(kind) {
       const later = kind === "phrase" ? ["noise", "clap"] : kind === "noise" ? ["clap"] : [];
       for (const k of later) {
+        releasePlayers(k);
         run[k] = null;
         $(TAKE_UI[k].result).replaceChildren();
         $(TAKE_UI[k].timer).textContent = "";
@@ -399,6 +745,7 @@
     // append: a clap take that adds to the claps already taken (the platform's "more claps").
     async function startTake(kind, append = false) {
       if (stage !== "armed" || busy) return;
+      stopPlayback();   // the speakers would bleed into the take
       takeKind = kind;
       clapAppend = kind === "clap" && append && !!run.clap;
       setStage("starting");
@@ -445,7 +792,7 @@
         return;
       }
       box.replaceChildren(el("p", engineState === "ready" ? "Analyzing..."
-        : "Analyzing (the engine is still starting; the first take waits for it)...", "soft"));
+        : "Analyzing (the engine is still starting; the first take waits for it)...", "muted"));
       let reply;
       if (kind === "phrase") {
         const bypass = bypassState(readback);
@@ -475,19 +822,20 @@
     // ---- The level result ----
     function renderLevel(reply, take, bypass) {
       const box = $("result");
+      releasePlayers("phrase");
       box.replaceChildren();
       if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
       const r = reply.result;
       const seconds = (take.samples.length / take.rate).toFixed(1);
-      box.append(el("p", `Take: ${seconds} s at ${take.rate} Hz, 24-bit mono.`, "soft"));
+      box.append(el("p", `Take: ${seconds} s at ${take.rate} Hz, 24-bit mono.`, "muted"));
       if (r.refused) { box.append(el("p", r.refused, "fail")); return; }
 
+      box.append(waveform(take.samples, take.rate, { refs: [-3], kind: "phrase", play: [{ label: "Play", blob: take.wav }],
+        caption: "The take at full scale. The dashed lines are -3 dBFS, the HOT line; the frame's edge is 0 dBFS." }));
+      // The measurements, on their band rails once the summary is in (renderCeiling).
+      box.append(metricsBox("phrase"));
       const table = el("table");
       table.append(row(["Check", "Result", "Detail"], "th"));
-      // Mic check
-      table.append(row(["Mic check", STATE_TEXT[bypass],
-        `AGC ${word(readback.agc)}, noise suppression ${word(readback.ns)}, echo cancellation ${word(readback.ec)}` +
-        (navigator.userAgentData ? "" : ". Capture chain unverified (not Chrome or Chromium).")]));
       // Format
       const pv = r.provenance || {};
       if (pv.error) table.append(row(["Format", "error", pv.error]));
@@ -501,12 +849,7 @@
       // Level
       const lv = r.level || {};
       if (lv.error) table.append(row(["Level", "error", lv.error]));
-      else if (r.level) {
-        table.append(row(["True peak", lv.peak_disposition, `${fmt(lv.true_peak_dbtp)} dBTP (sample peak ${fmt(lv.sample_peak_dbfs)} dBFS)`]));
-        table.append(row(["Integrated loudness", lv.lufs_disposition, `${fmt(lv.integrated_lufs)} LUFS`]));
-        table.append(row(["Speech level (A-weighted)", "", `${fmt(lv.speech_level_dba)} dBFS`]));
-        table.append(row(["Crest factor", "", `${fmt(lv.crest_factor_db)} dB`]));
-      }
+      else if (r.level) table.append(row(["Peak", lv.peak_disposition, "the core's peak verdict: CLIP on true peak, HOT on sample peak"]));
       if (r.level_gate) {
         // The gate's reason already carries the core's fail reasons, so they are the fallback only.
         const [verdict, reason] = r.level_gate;
@@ -556,11 +899,17 @@
       rt60: (config) => `${rt60Bands(config.gate)}; a clap's fit counts at r² ${config.quality.r_squared_min} or more` +
         (config.gate.dry_room_pass ? "; a room too dry to measure passes when its claps agree" : ""),
     };
+    // The page offers one shipped profile per check (Rick 2026-10-22): the platform's Platform
+    // Band, shown as Default band. Its records keep the yaml's own name, the stamp the
+    // platform's records carry, so the page names both.
+    const SHOWN_NAME = { "Platform Band": "Default band" };
+    const profileLabel = (name) => SHOWN_NAME[name] || name;
+    const shippedNote = (name) => (SHOWN_NAME[name] ? `shipped, the platform's ${name} profile` : "shipped");
     function showProfile(core) {
       const { profile, desc: { stamp, config } } = profiles[core];
-      $(`${core}-profile-info`).textContent = `${stamp.profile_name}, ` +
+      $(`${core}-profile-info`).textContent = `${profileLabel(stamp.profile_name)}, ` +
         (stamp.source === "yours" ? `your yaml (${profile.name}), read on this machine and never uploaded`
-                                  : "shipped") +
+                                  : shippedNote(stamp.profile_name)) +
         `: ${DESCRIBE[core](config)}. config sha256 ${stamp.config_sha256.slice(0, 16)}`;
     }
     // Check a profile in the worker and, if the core accepts it, score with it from now on;
@@ -623,7 +972,8 @@
       const prior = run.noise;
       busy = true;
       setStage(stage);
-      $("noise-result").replaceChildren(el("p", "Scoring the same room-tone take under the new profile...", "soft"));
+      releasePlayers("noise");
+      $("noise-result").replaceChildren(el("p", "Scoring the same room-tone take under the new profile...", "muted"));
       const reply = await analyzeNoise(prior.take.wav, speechLevel(), profiles.noise.profile);
       if (run.noise === prior) {
         run.noise = { ...prior, reply, profile: profiles.noise.profile };
@@ -643,7 +993,8 @@
       if (rt60Runs()) {
         busy = true;
         setStage(stage);
-        $("clap-result").replaceChildren(el("p", "Scoring the same claps again...", "soft"));
+        releasePlayers("clap");
+        $("clap-result").replaceChildren(el("p", "Scoring the same claps again...", "muted"));
         const reply = await analyzeClap(prior.takes, run.noise.reply.np, profiles.rt60.profile);
         if (run.clap === prior) run.clap = { ...prior, reply, profile: profiles.rt60.profile };
         busy = false;
@@ -660,29 +1011,32 @@
       insufficient_clean_noise: "no unbroken stretch of quiet was long enough: clicks, taps or speech broke it up",
       format_fail: "the working copy is not 48 kHz, 24-bit mono",
     };
-    const DISPOSITION_CLASS = { PASS: "pass", CAUTION: "warn", WARN: "warn", REJECT: "fail" };
     function renderNoise() {
       const { take, reply, profile } = run.noise;
       const box = $("noise-result");
+      releasePlayers("noise");
       box.replaceChildren();
       if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
       const r = reply.result;
       const seconds = (take.samples.length / take.rate).toFixed(1);
-      box.append(el("p", `Take: ${seconds} s at ${take.rate} Hz, 24-bit mono.`, "soft"));
+      box.append(el("p", `Take: ${seconds} s at ${take.rate} Hz, 24-bit mono.`, "muted"));
       if (r.refused) { box.append(el("p", r.refused, "fail")); return; }
       if (r.profile.error) { box.append(el("p", "The profile did not load: " + r.profile.error, "fail")); return; }
 
+      // The room tone is near silent, so it can also be heard raised to a -6 dBFS peak.
+      const peak = peakOf(take.samples), raise = peak > 0 ? 10 ** ((-6 - dbfs(peak)) / 20) : 1;
+      box.append(waveform(take.samples, take.rate, { scale: Math.max(peak * 1.1, 1e-6), kind: "noise",
+        play: [{ label: "Play", blob: take.wav },
+               { label: `Play raised ${fmt(20 * Math.log10(raise), 0)} dB`, blob: encodeWav24(take.samples.map((v) => v * raise), take.rate) }],
+        caption: `The room tone, scaled to its own peak (${fmt(dbfs(peak), 1)} dBFS): at full scale it would be a flat line.` }));
+      box.append(metricsBox("noise"));
       const table = el("table");
       table.append(row(["Check", "Result", "Detail"], "th"));
       const nz = r.noise || {};
       if (nz.error) table.append(row(["Quiet room", "error", nz.error]));
       else if (r.noise) {
-        table.append(row(["Noise floor (A-weighted)", "", `${fmt(nz.noise_floor_dba)} dBFS`]));
         table.append(row(["Noise floor (broadband)", "", `${fmt(nz.noise_floor_dbfs_broadband)} dBFS`]));
-        table.append(row(["Speech level (A-weighted)", "", `${fmt(nz.speech_level_dba)} dBFS, from the level take`]));
-        const tr = row(["SNR (A-weighted)", nz.disposition, `${fmt(nz.snr_db)} dB. ${nz.thresholds.name}: ${bands(nz.thresholds)}.`]);
-        tr.children[1].className = DISPOSITION_CLASS[nz.disposition] || "";
-        table.append(tr);
+        table.append(row(["SNR against", "", `the level take's speech level, ${fmt(nz.speech_level_dba)} dBFS (A-weighted)`]));
       }
       if (r.noise_gate) {
         const [verdict, reason] = r.noise_gate;
@@ -695,8 +1049,8 @@
         table.append(row(["Room tone kept", `${fmt(r.np.duration, 1)} s`, "the longest unbroken quiet stretch, trimmed: " +
           "what the room-reflection check reads, and what a denoiser can take as its noise print"]));
       }
-      table.append(row(["Profile", r.profile.profile_name,
-        `${r.profile.source === "yours" ? `your yaml (${profile.name})` : "shipped"}; config sha256 ${r.profile.config_sha256}`]));
+      table.append(row(["Profile", profileLabel(r.profile.profile_name),
+        `${r.profile.source === "yours" ? `your yaml (${profile.name})` : shippedNote(r.profile.profile_name)}; config sha256 ${r.profile.config_sha256}`]));
       if (r.working_copy && r.working_copy.derived) {
         table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
       }
@@ -729,7 +1083,6 @@
     // What each band does to the environment cap (_env_ceiling); an RT60 error caps nothing.
     const NOISE_CAP = { REJECT: 2, WARN: 2, CAUTION: 3 };
     const RT60_CAP = { reject: 2, borderline: 2, production: 3 };
-    const RT60_CLASS = { pass: "pass", production: "warn", borderline: "warn", reject: "fail", error: "fail" };
     // The fit r² of the claps that carry a 1 kHz value: [lowest, highest], or null.
     function usableR2(rt) {
       const r2 = (rt.claps || []).filter((c) => c.valid && c.rt60_per_band && c.rt60_per_band["1000"] != null)
@@ -738,32 +1091,46 @@
     }
     function renderClap() {
       const box = $("clap-result");
+      releasePlayers("clap");
       box.replaceChildren();
       if (!run.clap) return;
       const { takes, reply, profile } = run.clap;
       if (!rt60Runs()) {
         box.append(el("p", (noisePassed() ? LOFI_SKIP : "Not scored: the quiet room does not pass its gate now.") +
-          " These claps are kept, and a profile change that lets this check run scores them again.", "soft"));
+          " These claps are kept, and a profile change that lets this check run scores them again.", "muted"));
         return;
       }
       if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
       const r = reply.result;
       const seconds = takes.reduce((sum, tk) => sum + tk.samples.length / tk.rate, 0).toFixed(1);
-      box.append(el("p", `${takes.length === 1 ? "Take" : `${takes.length} takes`}: ${seconds} s at ${takes[0].rate} Hz, 24-bit mono.`, "soft"));
+      box.append(el("p", `${takes.length === 1 ? "Take" : `${takes.length} takes`}: ${seconds} s at ${takes[0].rate} Hz, 24-bit mono.`, "muted"));
       if (r.refused) { box.append(el("p", r.refused, "fail")); return; }
       if (r.profile.error) { box.append(el("p", "The profile did not load: " + r.profile.error, "fail")); return; }
 
+      if (r.rt60) {
+        const all = new Float32Array(takes.reduce((sum, tk) => sum + tk.samples.length, 0));
+        const seams = [];
+        let at = 0;
+        for (const tk of takes) { if (at) seams.push(at / takes[0].rate); all.set(tk.samples, at); at += tk.samples.length; }
+        const fate = (c) => (!c.valid ? "invalid" : c.rt60_per_band && c.rt60_per_band["1000"] != null ? "usable" : "nofit");
+        const marks = (r.rt60.claps || []).map((c) => ({ t: c.timestamp_sec, cls: fate(c) }));
+        const KEY = { usable: ["positive", "usable"], nofit: ["warning", "valid, no 1 kHz fit"], invalid: ["negative", "rejected"] };
+        box.append(waveform(all, takes[0].rate, { seams, marks, kind: "clap",
+          play: [{ label: "Play", blob: takes.length === 1 ? takes[0].wav : encodeWav24(all, takes[0].rate) }],
+          key: ["usable", "nofit", "invalid"].filter((k) => marks.some((m) => m.cls === k)).map((k) => KEY[k]),
+          caption: `Each detected clap where it happened${seams.length ? "; the solid line is where added claps were joined" : ""}.` }));
+      }
+      box.append(metricsBox("clap"));
       const table = el("table");
       table.append(row(["Check", "Result", "Detail"], "th"));
       const rt = r.rt60;
       if (rt) {
         const s = rt.summary || {}, dry = rt.dry_room, cc = r.clap_collection, r2 = usableR2(rt);
-        const value = s.rt60_gate_metric != null ? `${fmt(s.rt60_gate_metric, 3)} s`
-          : dry && dry.agrees ? `too dry to measure: ${dry.n_below_floor} of ${dry.n_claps_valid} valid claps sit below the 0.10 s floor and agree`
-          : "not measured";
-        const tr = row(["RT60 at 1 kHz (T20)", rt.disposition, `${value}. ${r.profile.profile_name}: ${rt60Bands(r.thresholds.gate)}.`]);
-        tr.children[1].className = RT60_CLASS[rt.disposition] || "";
-        table.append(tr);
+        if (s.rt60_gate_metric == null) {
+          table.append(row(["RT60 at 1 kHz (T20)", rt.disposition, dry && dry.agrees
+            ? `too dry to measure: ${dry.n_below_floor} of ${dry.n_claps_valid} valid claps sit below the 0.10 s floor and agree`
+            : "not measured"]));
+        }
         table.append(row(["Claps", `${cc.usable} usable`,
           `${cc.detected} detected, ${s.n_claps_valid} valid, ${cc.usable} with a 1 kHz fit (the platform wants ${cc.needed})` +
           (r2 ? `; fit r² ${fmt(r2[0], 3)} to ${fmt(r2[1], 3)}, the profile's minimum ${r.thresholds.r_squared_min}` : "")]));
@@ -786,8 +1153,8 @@
       if (takes.length > 1) {
         table.append(row(["Takes joined", String(takes.length), "joined end to end and analysed whole, as the platform does when it asks for more claps"]));
       }
-      table.append(row(["Profile", r.profile.profile_name,
-        `${r.profile.source === "yours" ? `your yaml (${profile.name})` : "shipped"}; config sha256 ${r.profile.config_sha256}`]));
+      table.append(row(["Profile", profileLabel(r.profile.profile_name),
+        `${r.profile.source === "yours" ? `your yaml (${profile.name})` : shippedNote(r.profile.profile_name)}; config sha256 ${r.profile.config_sha256}`]));
       if (r.working_copy && r.working_copy.derived) {
         table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
       }
@@ -815,7 +1182,8 @@
 
     // ---- The tier ceiling (design note sections 4.7 and 9, D3) ----
     // Worked out in the worker from the run's results: the platform's min(format,
-    // environment, device), and one row per metric with its margins.
+    // environment, device), and one row per metric with its margins. The ceiling leads the
+    // screen; each metric is drawn on its band rail in the take it came from.
     const STAGE_TITLES = { level: "Set your level", noise: "Quiet room", clap: "Room reflection" };
     let ceilingRequests = 0, lastSummary = null, ceilingUpdate = Promise.resolve();
     // One stage's result as the summary takes it; an analysis that failed is an error.
@@ -826,7 +1194,7 @@
       const id = ++ceilingRequests;
       if (!run.level) {
         lastSummary = null;
-        $("ceiling").replaceChildren(el("p", "Record a level take to start.", "soft"));
+        renderCeilingEmpty();
         return;
       }
       const rb = readback || {};
@@ -839,14 +1207,180 @@
       renderCeiling(reply);
     }
     const tierText = (n) => `${n} (${TIERS[n] || "?"})`;
-    const ONOFF = (v) => (v === false ? "off" : v === true ? "ON" : "not reported");
+    const TIER_NAMES = ["Reject", "Lo-fi", "Good", "Hi-fi"];   // AUDIO_TIERS 1 to 4
+    const TIER_TONE = { 2: "warning", 3: "", 4: "positive" };
+
+    // The tier ladder: the four rungs, the one the ceiling reaches filled, those above it out
+    // of reach, and each cap sitting on the rung it allows.
+    function ladder(at, caps, greyed) {
+      const rungs = el("div", null, "ladder");
+      TIER_NAMES.forEach((name, i) => {
+        const tier = i + 1, state = at == null ? "" : tier === at ? " at" : tier > at ? " above" : "";
+        const rung = el("div", null, `rung${state}${greyed && tier === at ? " greyed" : ""}`), chips = el("div", null, "rung-caps");
+        // The caps on this rung share one pill: full names, or on a phone their initials (F/E/D).
+        const here = caps.filter((x) => x.cap === tier);
+        if (here.length) {
+          const pill = el("span");
+          pill.title = here.map((c) => c.name).join(", ");
+          pill.append(el("span", here.map((c) => c.name).join(" / "), "long"), el("span", here.map((c) => c.name[0]).join("/"), "short"));
+          chips.append(pill);
+        }
+        rung.append(el("span", name, "rung-name"), chips);
+        rungs.append(rung);
+      });
+      const box = el("div");
+      box.append(rungs, el("p", "F format, E environment, D device", "ladder-key fine"));
+      return box;
+    }
+    function capCell(label, cap, why) {
+      const cell = el("div"), head = el("div");
+      head.append(el("span", label, "label"), " ", el("span", cap == null ? "-" : String(cap), "num"),
+                  cap == null ? "" : el("span", ` ${TIERS[cap] || ""}`, "muted"));
+      cell.append(head, el("p", why, "muted small"));
+      return cell;
+    }
+    function ceilingNotes() {
+      const notes = el("div", null, "ceiling-notes");
+      notes.append(
+        el("p", "The environment cap always applies here. On the platform it is a deploy setting (env_tier_cap_enabled), on by default.", "fine"),
+        el("p", "Every number is a property of this capture chain, in this room, now, in uncalibrated dBFS. It says whether a take would clear the platform's gates, not how a recording will score with a listener or a model.", "fine"));
+      return notes;
+    }
+    function setPill(text, tone = "") {
+      $("ceiling-pill").textContent = text;
+      $("ceiling-pill").className = `pill ${tone}`;
+    }
+    const INTRO = $("finding").textContent;
+
+    function renderCeilingEmpty() {
+      setPill("No takes yet");
+      $("finding").textContent = INTRO;
+      const top = el("div", null, "ceiling-top"), lead = el("div");
+      lead.append(el("div", null, "lead greyed"), el("p", "no takes yet", "muted"));
+      lead.firstChild.append(el("span", "-", "num"));
+      top.append(lead, ladder(null, [], false));
+      const caps = el("div", null, "caps");
+      caps.append(capCell("Format", null, "from the level take"), capCell("Environment", null, "from the quiet room and room reflection"),
+                  capCell("Device", null, "from the browser's own report"));
+      $("ceiling").replaceChildren(top, el("p", "Record the three takes and the ceiling shows here: the highest audio " +
+        "tier this mic, in this room, could earn on the platform, and which cap holds it there.", "finding"), caps, ceilingNotes());
+      for (const kind of ["phrase", "noise", "clap"]) { const box = $(`${kind}-metrics`); if (box) box.replaceChildren(); }
+    }
+    renderCeilingEmpty();
+
+    function renderCeiling(reply) {
+      const box = $("ceiling");
+      if (!reply.ok) {
+        box.replaceChildren(el("p", "The ceiling could not be worked out: " + lastLine(reply.error), "fail"));
+        return;
+      }
+      const { ceiling: c, metrics } = reply.result;
+      const { format: f, environment: e, device: d } = c.components;
+      const caps = [{ name: "Format", cap: f.cap }, { name: "Environment", cap: e.known ? e.cap : null }, { name: "Device", cap: d.cap }];
+
+      // The answer, its name, and the finding: which cap holds it, or what is next.
+      const top = el("div", null, "ceiling-top"), lead = el("div"), figure = el("div", null, "lead");
+      let finding;
+      if (c.ceiling != null) {
+        figure.append(el("span", String(c.ceiling), "num"), el("span", c.name, "name"));
+        setPill(c.name, TIER_TONE[c.ceiling]);
+        const holders = caps.filter((x) => x.cap === c.ceiling).map((x) => x.name.toLowerCase());
+        finding = c.ceiling === 4 ? "Ceiling 4 (Hi-fi): every cap allows the top tier."
+          : `Ceiling ${tierText(c.ceiling)}: the ${holders.join(" and the ")} ${holders.length > 1 ? "hold" : "holds"} it there.`;
+      } else if (c.failed) {
+        figure.className = "lead greyed";
+        figure.append(el("span", "No ceiling", "name"));
+        setPill("No ceiling", "negative");
+        finding = `No ceiling: the ${STAGE_TITLES[c.failed.stage]} gate did not pass (${c.failed.verdict}). Fix this and re-run; ` +
+                  `it would have been at most ${tierText(c.would_be)}.`;
+      } else {
+        figure.className = "lead greyed";
+        figure.append(el("span", String(c.would_be), "num"), el("span", `${c.would_be_name} so far`, "name"));
+        setPill("Not complete");
+        finding = `Not complete: next, ${STAGE_TITLES[c.next]}. So far at most ${tierText(c.would_be)}.`;
+      }
+      lead.append(figure, el("p", c.failed ? `${STAGE_TITLES[c.failed.stage]}: ${c.failed.reason || c.failed.verdict}`
+        : "the lowest of the three caps", "muted"));
+      top.append(lead, ladder(c.ceiling ?? c.would_be, caps, c.ceiling == null));
+
+      const why = [];
+      if (e.noise) why.push(`quiet room ${e.noise}` + (NOISE_CAP[e.noise] ? ` caps at ${NOISE_CAP[e.noise]}` : ", no cap"));
+      if (e.noise && !c.rt60_runs) why.push("room reflection skipped in the lo-fi band");
+      else if (e.rt60) why.push(`room reflection ${e.rt60}` + (RT60_CAP[e.rt60] ? ` caps at ${RT60_CAP[e.rt60]}`
+        : e.rt60 === "error" ? ", not measured, no cap" : ", no cap"));
+      if (!e.known) why.push("not complete yet");
+      const capsRow = el("div", null, "caps");
+      capsRow.append(
+        capCell("Format", f.cap, f.cap == null ? "from the level take" : f.failsafe
+          ? "the format check did not run, so the platform's fail-safe applies"
+          : `${f.verdict}, from the level take` + (f.held ? "; held at 3 because the mic check is unverified"
+            : f.cap < 4 ? "; only a confirmed-native, lossless take reaches 4" : "")),
+        capCell("Environment", e.known || e.noise ? e.cap : null, why.join("; ") || "from the quiet room and room reflection"),
+        capCell("Device", d.cap, d.is_mobile ? "the browser reports a mobile device: phone mics cap at 2"
+          : d.is_mobile === false ? "the browser reports a desktop: no cap" : "the browser does not report its device class: no cap"));
+      box.replaceChildren(top, el("p", finding, "finding"), capsRow, ceilingNotes());
+
+      // Each metric on its band rail, in the take it came from.
+      for (const kind of ["phrase", "noise", "clap"]) {
+        const target = $(`${kind}-metrics`);
+        if (target) target.replaceChildren(...metrics.filter((m) => METRIC_STEP[m.metric] === kind).map(metricRow));
+      }
+    }
+
+    // ---- The band rails: each measurement on its selected profile's bands ----
+    const METRIC_STEP = { "True peak": "phrase", "Sample peak": "phrase", "Integrated loudness": "phrase",
+      "Speech level (A-weighted)": "phrase", "Crest factor": "phrase", "Noise floor (A-weighted)": "noise",
+      "SNR (A-weighted)": "noise", "RT60 at 1 kHz (T20)": "clap" };
+    // The pale status pair of the band a value sits in; the other bands stay neutral.
+    const BAND_TONE = { PASS: "positive", pass: "positive", "under CLIP": "positive", "not HOT": "positive",
+      CAUTION: "warning", QUIET: "warning", production: "warning", WARN: "warning", borderline: "warning", HOT: "warning",
+      REJECT: "negative", reject: "negative", TOO_QUIET: "negative", CLIP: "negative" };
+    function metricsBox(kind) {
+      const box = el("div", null, "metrics");
+      box.id = `${kind}-metrics`;
+      return box;
+    }
+    // The rail's span: the profile's edges, widened so the outer bands show and the value fits.
+    function railSpan(edges, value, unit) {
+      const lo = Math.min(...edges), hi = Math.max(...edges);
+      const pad = Math.max((hi - lo) * 0.35, unit === "s" ? 0.15 : 6);
+      const a = Math.min(lo - pad, Number.isFinite(value) ? value - pad / 4 : Infinity);
+      const b = Math.max(hi + pad, Number.isFinite(value) ? value + pad / 4 : -Infinity);
+      return [a, b];
+    }
+    function bandRail(m) {
+      const rail = el("div", null, "rail-bands");
+      if (!m.edges) return rail;
+      const [a, b] = railSpan(m.edges, m.value, m.unit), stops = [a, ...m.edges, b];
+      m.bands.forEach((name, i) => {
+        // A band too narrow for its name keeps it as a tooltip only.
+        const label = (stops[i + 1] - stops[i]) / (b - a) < 0.1 ? "" : name;
+        const seg = el("span", label, name === m.band ? BAND_TONE[name] || "" : "");
+        seg.style.flex = `${((stops[i + 1] - stops[i]) / (b - a) * 100).toFixed(3)} 1 0`;   // shares of 100, whatever the unit
+        // A mark in the middle of its band would cross the band's name: the name moves aside.
+        const at = (m.value - stops[i]) / (stops[i + 1] - stops[i]);
+        if (Number.isFinite(m.value) && at > 0.2 && at < 0.8) {
+          seg.style.justifyContent = at < 0.5 ? "flex-end" : "flex-start";
+          seg.style.padding = "0 8px";
+        }
+        seg.title = name;
+        rail.append(seg);
+      });
+      if (Number.isFinite(m.value)) {
+        const mark = el("i");
+        mark.style.left = `${((m.value - a) / (b - a) * 100).toFixed(2)}%`;
+        rail.append(mark);
+      }
+      rail.setAttribute("role", "img");
+      rail.setAttribute("aria-label", `${m.metric} ${m.band || ""} on ${m.bands.join(", ")}`);
+      return rail;
+    }
     function metricValue(m) {
-      if (m.metric === "Mic check") return `${m.value} (AGC ${ONOFF(m.note.agc)}, NS ${ONOFF(m.note.ns)}, EC ${ONOFF(m.note.ec)})`;
       if (typeof m.value !== "number") {
         const dry = m.note && m.note.dry_room;
-        return m.value != null ? String(m.value) : dry && dry.agrees ? "below 0.10 s" : "-";
+        return [m.value != null ? String(m.value) : dry && dry.agrees ? "below 0.10" : "-", m.unit];
       }
-      return `${m.value.toFixed(m.unit === "s" ? 3 : 1)} ${m.unit}`;
+      return [m.value.toFixed(m.unit === "s" ? 3 : 1), m.unit];
     }
     const marginText = (m) => m.margins.map((x) => `${x.by.toFixed(x.unit === "s" ? 3 : 1)} ${x.unit} ${x.side} ${x.band}`).join(", ");
     function statusText(m) {
@@ -855,48 +1389,154 @@
       return `estimated from ${n.usable} of ${n.detected} claps` +
         (n.r_squared ? `, r² ${n.r_squared[0].toFixed(3)} to ${n.r_squared[1].toFixed(3)}` : "");
     }
-    function renderCeiling(reply) {
-      const box = $("ceiling");
-      box.replaceChildren();
-      if (!reply.ok) { box.append(el("p", "The ceiling could not be worked out: " + lastLine(reply.error), "fail")); return; }
-      const { ceiling: c, metrics } = reply.result;
-      if (c.ceiling != null) {
-        box.append(el("p", `Ceiling: ${tierText(c.ceiling)}`, "ceiling-line pass"),
-          el("p", "The highest audio tier these takes could earn on the platform: the lowest of the three caps below.", "fine"));
-      } else if (c.failed) {
-        const would = el("p", "", "soft");
-        would.append("It would have been at most ", span(tierText(c.would_be), "greyed"),
-          ", but the platform assigns no tier when a gate fails. " +
-          `${STAGE_TITLES[c.failed.stage]}: ${c.failed.verdict}${c.failed.reason ? `, ${c.failed.reason}` : ""}.`);
-        box.append(el("p", `No ceiling: the ${STAGE_TITLES[c.failed.stage]} gate did not pass. Fix this and re-run.`, "ceiling-line fail"), would);
-      } else {
-        const so = el("p", "", "soft");
-        so.append("So far at most ", span(tierText(c.would_be), "greyed"), ".");
-        box.append(el("p", `Not complete: next, ${STAGE_TITLES[c.next]}.`, "ceiling-line soft"), so);
+    function metricRow(m) {
+      const rowEl = el("div", null, "metric"), name = el("div", null, "name"), value = el("div", null, "value");
+      const [v, unit] = metricValue(m);
+      name.append(m.metric, el("small", statusText(m)));
+      value.append(v, el("span", unit, "unit"));
+      rowEl.append(name, value, bandRail(m), el("div", marginText(m), "margin"));
+      return rowEl;
+    }
+
+    // ---- The takes as waveforms, drawn from their own samples ----
+    // A min/max envelope, one column per slice of the take. scale is the amplitude at the
+    // frame's edge (1 = 0 dBFS); refs are dBFS lines; seams and marks are times in seconds.
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    function svgEl(tag, attrs) {
+      const e = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+      return e;
+    }
+    function waveform(samples, rate, { scale = 1, refs = [], seams = [], marks = [], caption = "", key = [], kind, play = [] } = {}) {
+      const W = 1000, H = 88, mid = H / 2, n = samples.length, cols = 500, seconds = n / rate;
+      const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img",
+                                 "aria-label": caption || "waveform of the take" });
+      const top = [], bottom = [];
+      for (let c = 0; c < cols; c++) {
+        const a = Math.floor(c * n / cols), b = Math.max(a + 1, Math.floor((c + 1) * n / cols));
+        let lo = 0, hi = 0;
+        for (let i = a; i < b && i < n; i++) { const v = samples[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        const x = (c / (cols - 1) * W).toFixed(1);
+        top.push(`${x},${(mid - Math.min(1, hi / scale) * mid).toFixed(1)}`);
+        bottom.push(`${x},${(mid - Math.max(-1, lo / scale) * mid).toFixed(1)}`);
       }
+      svg.append(svgEl("path", { class: "env", d: `M${top.join("L")}L${bottom.reverse().join("L")}Z` }));
+      const line = (cls, x1, y1, x2, y2) => svg.append(svgEl("line", { class: cls, x1, y1, x2, y2, "vector-effect": "non-scaling-stroke" }));
+      for (const db of refs) {
+        const amp = 10 ** (db / 20) / scale;
+        if (amp < 1) for (const y of [mid - amp * mid, mid + amp * mid]) line("ref", 0, y, W, y);
+      }
+      for (const s of seams) line("seam", s / seconds * W, 0, s / seconds * W, H);
+      // Clap marks are ticks along the top edge, so the claps themselves stay visible.
+      for (const m of marks) line(`clap-mark ${m.cls}`, m.t / seconds * W, 0, m.t / seconds * W, 14);
+      const box = el("div", null, "wave"), axis = el("div", null, "wave-axis");
+      const plot = el("div", null, "wave-plot");
+      plot.append(svg);
+      if (play.length) {
+        const controls = el("div", null, "wave-controls"), time = el("span", `0.0 / ${seconds.toFixed(1)} s`, "timer");
+        const player = makePlayer(kind, plot, seconds, play, time);
+        controls.append(...player.buttons, time);
+        box.append(controls);
+      }
+      for (const f of [0, 0.25, 0.5, 0.75, 1]) axis.append(el("span", `${(f * seconds).toFixed(1)} s`));
+      box.append(plot, axis);
+      if (key.length) {
+        const k = el("div", null, "wave-key");
+        for (const [cls, text] of key) { const item = el("span"); const sw = el("i"); sw.style.background = `var(--${cls})`; item.append(sw, text); k.append(item); }
+        box.append(k);
+      }
+      if (caption) box.append(el("p", caption, "fine"));
+      return box;
+    }
+    // ---- Playback: each take can be heard, with a playhead on its waveform ----
+    // One take sounds at a time, and none while a take records: echo cancellation is off by
+    // design, so the speakers would bleed into it. sources are [{label, blob}], each a WAV of
+    // the whole take; switching source keeps the playhead where it is.
+    function stopPlayback() { if (playing) playing.stop(); }
+    function releasePlayers(kind) { for (const pl of players[kind]) pl.release(); players[kind] = []; }
+    // The pointer over the waveform sits where the take is, playing, paused or sought.
+    function makePlayer(kind, plot, seconds, sources, time) {
+      const audio = new Audio(), urls = sources.map((s) => URL.createObjectURL(s.blob));
+      const head = el("div", null, "playhead");
+      plot.append(head);
+      let current = -1, frame = 0;
+      const draw = () => {
+        head.style.left = `${(Math.min(1, audio.currentTime / seconds) * 100).toFixed(2)}%`;
+        time.textContent = `${audio.currentTime.toFixed(1)} / ${seconds.toFixed(1)} s`;
+        if (!audio.paused) frame = requestAnimationFrame(draw);
+      };
+      const relabel = () => buttons.forEach((b, i) => { b.textContent = i === current && !audio.paused ? "Pause" : sources[i].label; });
+      // Load a source, keeping the playhead's position once the file's length is known.
+      const load = (i, at) => new Promise((resolve) => {
+        current = i;
+        audio.src = urls[i];
+        audio.addEventListener("loadedmetadata", () => { audio.currentTime = Math.min(at, seconds); resolve(); }, { once: true });
+      });
+      async function toggle(i) {
+        if (i === current && !audio.paused) { audio.pause(); return; }
+        if (playing && playing !== api) playing.stop();
+        if (i !== current) await load(i, audio.currentTime || 0);
+        if (audio.ended) audio.currentTime = 0;
+        playing = api;
+        audio.play().catch(() => {});
+      }
+      const buttons = sources.map((s, i) => {
+        const b = el("button", s.label, "play");
+        b.type = "button";
+        b.onclick = () => toggle(i);
+        return b;
+      });
+      audio.onplay = () => { relabel(); frame = requestAnimationFrame(draw); };
+      audio.onpause = audio.onended = () => { cancelAnimationFrame(frame); relabel(); draw(); if (playing === api) playing = null; };
+      // A click on the waveform moves the pointer, and the playback, there.
+      plot.addEventListener("click", async (e) => {
+        if (buttons[0].disabled) return;
+        const box = plot.getBoundingClientRect();
+        const at = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * seconds;
+        if (current < 0) await load(0, at); else audio.currentTime = at;
+        draw();
+      });
+      const api = { buttons, audio, head, plot,
+        stop() { audio.pause(); },
+        release() { audio.pause(); audio.removeAttribute("src"); urls.forEach((u) => URL.revokeObjectURL(u)); } };
+      players[kind].push(api);
+      return api;
+    }
+    const peakOf = (samples) => { let m = 0; for (const v of samples) { const a = Math.abs(v); if (a > m) m = a; } return m; };
+    const dbfs = (amp) => (amp > 0 ? 20 * Math.log10(amp) : -Infinity);
 
-      const { format: f, environment: e, device: d } = c.components, table = el("table");
-      table.append(row(["Cap", "At most", "Why"], "th"));
-      table.append(row(["Format", f.cap == null ? "-" : tierText(f.cap),
-        f.cap == null ? "from the level take" : f.failsafe ? "the format check did not run, so the platform's fail-safe applies"
-        : `${f.verdict}, from the level take` + (f.held ? "; held at 3 because the mic check is unverified"
-          : f.cap < 4 ? "; only a confirmed-native, lossless take reaches 4" : "")]));
-      const why = [];
-      if (e.noise) why.push(`quiet room ${e.noise}` + (NOISE_CAP[e.noise] ? ` caps at ${NOISE_CAP[e.noise]}` : ": no cap"));
-      if (e.noise && !c.rt60_runs) why.push("room reflection skipped in the lo-fi band");
-      else if (e.rt60) why.push(`room reflection ${e.rt60}` + (RT60_CAP[e.rt60] ? ` caps at ${RT60_CAP[e.rt60]}`
-        : e.rt60 === "error" ? ": not measured, no cap" : ": no cap"));
-      if (!e.known) why.push("not complete yet");
-      table.append(row(["Environment", e.noise ? tierText(e.cap) : "-", why.join("; ")]));
-      table.append(row(["Device", tierText(d.cap), d.is_mobile ? "the browser reports a mobile device: phone mics cap at 2"
-        : d.is_mobile === false ? "the browser reports a desktop: no cap" : "the browser does not report its device class: no cap"]));
-      box.append(table);
-
-      const mt = el("table");
-      mt.append(row(["Metric", "Value", "Band", "Margin", "Status"], "th"));
-      for (const m of metrics) mt.append(row([m.metric, metricValue(m), m.band || "", marginText(m), statusText(m)]));
-      box.append(el("p", "Every number, the band it landed in, and how far it sits from the selected profile's nearest " +
-        "thresholds. Measured, derived and estimated numbers come from the takes; reported and self-reported ones from the browser.", "fine"), mt);
+    // ---- The step strip: the three takes, their verdicts and the one figure each ----
+    function renderSteps() {
+      const GATE_TONE = { PASS: "positive", FAIL: "negative", ERROR: "negative" };
+      const cells = {
+        phrase: { title: "Set your level", entry: run.level, gate: "level_gate",
+                  figure: (r) => r.level && !r.level.error ? `${fmt(r.level.integrated_lufs, 1)} LUFS, ${fmt(r.level.true_peak_dbtp, 1)} dBTP` : "" },
+        noise: { title: "Quiet room", entry: run.noise, gate: "noise_gate",
+                 figure: (r) => r.noise && !r.noise.error ? `SNR ${fmt(r.noise.snr_db, 1)} dB, ${r.noise.disposition}` : "" },
+        clap: { title: "Room reflection", entry: run.clap, gate: "rt60_gate",
+                figure: (r) => r.rt60 ? `RT60 ${r.rt60.summary.rt60_gate_metric != null ? fmt(r.rt60.summary.rt60_gate_metric, 3) + " s" : "below 0.10 s"}, ${r.rt60.disposition}` : "" },
+      };
+      const nextKind = !levelPassed() ? "phrase" : !noisePassed() ? "noise" : rt60Runs() && !clapPassed() ? "clap" : null;
+      for (const [kind, c] of Object.entries(cells)) {
+        const cell = $(`cell-${kind}`), head = el("div", null, "head");
+        let pill, figure = "", hint = "";
+        if (kind === "clap" && noisePassed() && !rt60Runs()) {
+          pill = span("Skipped", "pill");
+          hint = "the lo-fi band: the noise alone caps at 2";
+        } else if (c.entry && !c.entry.reply.ok) {
+          pill = span("Error", "pill negative");
+        } else if (c.entry) {
+          const r = c.entry.reply.result, verdict = r.refused ? "FAIL" : (r[c.gate] || ["ERROR"])[0];
+          pill = span(verdict, `pill ${GATE_TONE[verdict] || ""}`);
+          figure = c.figure(r);
+        } else {
+          pill = span(kind === nextKind ? "Next" : "Waiting", "pill");
+          hint = kind === nextKind && stage === "off" ? "Turn on the mic first." : "";
+        }
+        head.append(el("h3", c.title), pill);
+        cell.replaceChildren(head, figure ? el("p", figure, "figure") : el("p", hint || "-", "muted"));
+        cell.classList.toggle("next", kind === nextKind);
+      }
     }
 
     // ---- Save noise profile (design note section 7, D5) ----
@@ -904,7 +1544,7 @@
     // RecQC's additions under "recqc" (the mic readback, the profile, the saved names).
     function noiseProfileFiles() {
       const { take, reply, profile, readback: rb, at } = run.noise;
-      const p2 = (n) => String(n).padStart(2, "0");
+      const p2 = (n) => String(n).padStart(2, "0"); // taste-skill-ignore: a date in the saved file's name
       const base = `recqc_${at.getFullYear()}-${p2(at.getMonth() + 1)}-${p2(at.getDate())}_` +
                    `${p2(at.getHours())}${p2(at.getMinutes())}${p2(at.getSeconds())}`;
       const names = { wav: `${base}_np.wav`, json: `${base}_np.json` };
@@ -964,12 +1604,21 @@
       await sleep(seconds * 1000);
       return stopTake();
     }
+    // The rungs that carry at least one cap, from the summary's components.
+    const caps_on_rungs = (cl) => [cl.components.format.cap, cl.components.environment.known ? cl.components.environment.cap : null,
+                                   cl.components.device.cap].filter((c) => c != null);
     async function selftest() {
       const done = (line) => { document.title = line; $("engine").textContent = line; };
       try {
         await engineUp;
+        // The phrase is the user's to rewrite, and goes back to the default on request.
+        $("phrase").value = "Hola, esto es una prueba de nivel.";
+        $("phrase").dispatchEvent(new Event("input"));
+        if ($("phrase-reset").hidden) return done("SELFTEST FAIL: a rewritten phrase offers no way back to the default");
+        $("phrase-reset").click();
+        if ($("phrase").value !== DEFAULT_PHRASE || !$("phrase-reset").hidden) return done("SELFTEST FAIL: the phrase did not reset");
         $("arm").click();
-        while (stage === "off" && !$("readback").textContent) await sleep(50);
+        while (stage === "off" && !$("readback").querySelector(".fail")) await sleep(50);
         if (stage !== "armed") return done("SELFTEST FAIL: " + ($("readback").textContent || "mic did not open"));
         const armedAt = performance.now();
         if (bypassState(readback) === "active") return done("SELFTEST FAIL: browser processing active " + JSON.stringify(readback));
@@ -980,6 +1629,33 @@
         const ok = r && r.provenance && !r.provenance.error && typeof r.format_ceiling === "number"
                    && r.level && !r.level.error && Array.isArray(r.level_gate);
         if (!ok) return done("SELFTEST FAIL: " + (out ? JSON.stringify(out.reply).slice(0, 400) : $("result").textContent));
+        if (!$("result").querySelector(".wave svg path.env")) return done("SELFTEST FAIL: the level take's waveform was not drawn");
+        if ($("noise-profile").options.length !== 1 || $("rt60-profile").options.length !== 1
+            || $("noise-profile").options[0].textContent !== "Default band") {
+          return done("SELFTEST FAIL: the selectors should offer the Default band alone");
+        }
+        // Playback: the level take plays, its playhead moves, and it pauses when asked.
+        const lp = players.phrase[0];
+        lp.buttons[0].click();
+        await sleep(800);
+        const heard = lp.audio.currentTime, label = lp.buttons[0].textContent;
+        lp.buttons[0].click();
+        await sleep(100);
+        if (!(heard > 0.2 && label === "Pause" && lp.audio.paused && lp.buttons[0].textContent === "Play")) {
+          return done(`SELFTEST FAIL: the level take did not play (${heard.toFixed(2)} s, "${label}")`);
+        }
+        // The pointer sits where the take paused, and a click halfway along seeks there.
+        const takeSeconds = out.take.samples.length / out.take.rate;
+        const pointerAt = () => parseFloat(lp.head.style.left) / 100;
+        if (Math.abs(pointerAt() - lp.audio.currentTime / takeSeconds) > 0.02) {
+          return done(`SELFTEST FAIL: the pointer (${pointerAt().toFixed(3)}) is not where the take paused`);
+        }
+        const plotBox = lp.plot.getBoundingClientRect();
+        lp.plot.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: plotBox.left + plotBox.width / 2, clientY: plotBox.top + 10 }));
+        await sleep(300);
+        if (!(Math.abs(lp.audio.currentTime - takeSeconds / 2) < 0.15 && Math.abs(pointerAt() - 0.5) < 0.03)) {
+          return done(`SELFTEST FAIL: a click halfway did not seek there (${lp.audio.currentTime.toFixed(2)} s of ${takeSeconds.toFixed(2)})`);
+        }
         const levelLine = `${bypassState(readback)}, ${out.take.rate} Hz, ` +
           `${(out.take.samples.length / out.take.rate).toFixed(1)} s, format ` +
           `${r.provenance.spectral_verdict} (up to ${r.format_ceiling}), true peak ` +
@@ -1009,6 +1685,10 @@
             return done("SELFTEST FAIL: the save payload " + JSON.stringify(saved).slice(0, 400));
           }
           noiseLine += `, saves ${wavName} (${fmt(n.np.duration, 1)} s of room tone) and ${jsonName}`;
+          const np = players.noise[0];
+          if (!(np && np.buttons.length === 2 && /^Play raised \d+ dB$/.test(np.buttons[1].textContent))) {
+            return done("SELFTEST FAIL: the room tone has no raised playback");
+          }
         }
 
         // Room reflection, from the claps in the file, under Platform Band. The take must
@@ -1025,13 +1705,16 @@
           while (stage !== "recording") await sleep(20);
           const clapStart = performance.now();
           let cueShown = false, cueHidden = false;   // while recording: it must pulse, and pause after a clap
+          let playLocked = true;                      // and no take can be played meanwhile
           while (stage !== "armed" || !run.clap) {
             if (stage === "recording") {
+              playLocked = playLocked && players.phrase.concat(players.noise).every((pl) => pl.buttons.every((b) => b.disabled));
               if ($("clap-cue").classList.contains("show")) cueShown = true;
               else cueHidden = true;
             }
             await sleep(50);
           }
+          if (!playLocked) return done("SELFTEST FAIL: a take could be played while the claps recorded");
           if (!(cueShown && cueHidden)) {
             return done(`SELFTEST FAIL: the clap cue ${cueShown ? "never paused for a clap" : "never showed"}`);
           }
@@ -1039,6 +1722,10 @@
           const c = run.clap.reply.ok ? run.clap.reply.result : null;
           if (!(c && c.rt60 && Array.isArray(c.rt60_gate) && c.clap_collection && c.profile.profile_name === "Platform Band")) {
             return done("SELFTEST FAIL: room reflection " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          const drawn = $("clap-result").querySelectorAll(".wave .clap-mark").length;
+          if (drawn !== c.clap_collection.detected) {
+            return done(`SELFTEST FAIL: ${drawn} clap marks drawn for ${c.clap_collection.detected} claps detected`);
           }
           clapLine = `room reflection RT60 ${fmt(c.rt60.summary.rt60_gate_metric, 3)} s, ${c.rt60.disposition}, ` +
                      `gate ${c.rt60_gate[0]}, ${c.clap_collection.detected} claps in a ${took.toFixed(1)} s take that stopped itself, ` +
@@ -1051,31 +1738,36 @@
         const cl = sum && sum.ceiling;
         const snrRow = sum && sum.metrics.find((m) => m.metric === "SNR (A-weighted)");
         if (!(cl && cl.next === null && (cl.failed ? cl.ceiling === null : cl.ceiling === cl.would_be)
-              && snrRow && snrRow.margins.length && $("ceiling").textContent.includes(cl.failed ? "No ceiling" : "Ceiling:"))) {
+              && snrRow && snrRow.margins.length && $("ceiling-pill").textContent === (cl.failed ? "No ceiling" : cl.name)
+              && $("noise-metrics") && $("noise-metrics").querySelector(".rail-bands i"))) {
           return done("SELFTEST FAIL: the ceiling card " + JSON.stringify(lastSummary).slice(0, 400));
         }
+        // The caps on one rung share one pill: Environment and Device both allow 4 here.
+        const pills = [...document.querySelectorAll(".rung-caps > span")].map((s) => s.querySelector(".long").textContent);
+        const perRung = new Set(caps_on_rungs(cl)).size;
+        if (pills.length !== perRung) return done(`SELFTEST FAIL: ${pills.length} cap pills for ${perRung} rungs with caps (${pills.join(", ")})`);
         const ceilingLine = cl.failed ? `no ceiling: ${cl.failed.stage} ${cl.failed.verdict}`
           : `ceiling ${cl.ceiling} (${cl.name}) from format ${cl.components.format.cap}, environment ` +
             `${cl.components.environment.cap}, device ${cl.components.device.cap}`;
 
-        // A room-reflection profile change re-scores the same claps.
+        // A room-reflection profile change re-scores the same claps. The page offers one
+        // shipped profile, so the change is a user's yaml with Strict's thresholds.
+        const STRICT_YAML = "profile_name: Selftest strict\ngate:\n  reject_above: 0.50\n  pass_below: 0.25\n  min_valid_claps: 3\n";
         let strictLine = "";
         if (run.clap) {
           const before = run.clap.reply;
-          $("rt60-profile").value = "strict";
-          $("rt60-profile").dispatchEvent(new Event("change"));
-          while (busy) await sleep(50);
+          await useProfile("rt60", { name: "strict.yaml", text: STRICT_YAML }, "yours");
           await ceilingUpdate;
           const s = run.clap.reply.ok ? run.clap.reply.result : null;
-          if (!(run.clap.reply !== before && s && s.profile.profile_name === "Strict" && s.rt60)) {
-            return done("SELFTEST FAIL: re-scoring the claps under Strict " + JSON.stringify(run.clap.reply).slice(0, 400));
+          if (!(run.clap.reply !== before && s && s.profile.profile_name === "Selftest strict" && s.rt60)) {
+            return done("SELFTEST FAIL: re-scoring the claps under a user's yaml " + JSON.stringify(run.clap.reply).slice(0, 400));
           }
-          strictLine = `; claps re-scored under Strict: ${s.rt60.disposition}`;
+          strictLine = `; claps re-scored under a user's strict yaml: ${s.rt60.disposition}`;
 
           // More claps: under a yaml whose crest bar no clap can clear, the claps are
           // unmeasured and the platform would ask for more. Add more claps records a
           // second take (room tone here) that joins the first, and the pair is scored
-          // whole; back under Strict the same two takes are scored again.
+          // whole; back under the Default band the same two takes are scored again.
           await useProfile("rt60", { name: "unclear.yaml",
             text: "profile_name: Selftest unclear claps\ngate:\n  min_valid_claps: 3\nadvanced:\n  crest_min_db: 60.0\n" }, "yours");
           const u = run.clap.reply.ok ? run.clap.reply.result : null;
@@ -1088,30 +1780,36 @@
           await stopTake();
           await ceilingUpdate;
           const j = run.clap.reply.ok ? run.clap.reply.result : null;
-          if (!(j && run.clap.takes.length === 2 && j.working_copy.takes_joined === 2 && j.clap_collection.collect_more)) {
+          if (!(j && run.clap.takes.length === 2 && j.working_copy.takes_joined === 2 && j.clap_collection.collect_more
+                && $("clap-result").querySelectorAll(".wave .seam").length === 1)) {
             return done("SELFTEST FAIL: more claps were not joined " + JSON.stringify(run.clap.reply).slice(0, 400));
           }
-          $("rt60-profile").value = "strict";
+          $("rt60-profile").value = "platform_band";
           $("rt60-profile").dispatchEvent(new Event("change"));
           while (busy) await sleep(50);
           await ceilingUpdate;
           const back = run.clap.reply.ok ? run.clap.reply.result : null;
-          if (!(back && back.working_copy.takes_joined === 2 && back.profile.profile_name === "Strict")) {
-            return done("SELFTEST FAIL: the joined takes under Strict " + JSON.stringify(run.clap.reply).slice(0, 400));
+          if (!(back && back.working_copy.takes_joined === 2 && back.profile.profile_name === "Platform Band"
+                && $("clap-result").textContent.includes("Default band"))) {
+            return done("SELFTEST FAIL: the joined takes under the Default band " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          // The joined pair plays as one file, as long as the two takes together.
+          const cp = players.clap[0];
+          if (!(cp && Math.abs(Number(cp.buttons[0].parentElement.querySelector(".timer").textContent.split("/ ")[1].split(" ")[0])
+                - run.clap.takes.reduce((sum, tk) => sum + tk.samples.length / tk.rate, 0)) < 0.11)) {
+            return done("SELFTEST FAIL: the joined claps' player is not as long as the two takes");
           }
           strictLine += `; unclear claps asked for more, a second take joined (${j.clap_collection.detected} claps), ` +
-                        `the pair under Strict: ${back.rt60.disposition}`;
+                        `the pair under the Default band: ${back.rt60.disposition}`;
         }
         // A quiet-room profile change re-scores the same take: the floor holds and the
         // stamp moves; the claps, which read its room tone, are scored again after it.
         const clapBefore = run.clap && run.clap.reply;
-        $("noise-profile").value = "default";
-        $("noise-profile").dispatchEvent(new Event("change"));
-        while (busy) await sleep(50);
+        await useProfile("noise", { name: "default.yaml", text: "profile_name: Selftest default\nsnr:\n  reject_below: 38.0\n" }, "yours");
         await ceilingUpdate;
         const d = run.noise.reply.ok ? run.noise.reply.result : null;
-        if (!(d && d.profile.profile_name === "Default" && d.noise.noise_floor_dba === n.noise.noise_floor_dba)) {
-          return done("SELFTEST FAIL: re-scoring under Default " + JSON.stringify(run.noise.reply).slice(0, 400));
+        if (!(d && d.profile.profile_name === "Selftest default" && d.noise.noise_floor_dba === n.noise.noise_floor_dba)) {
+          return done("SELFTEST FAIL: re-scoring under a user's yaml " + JSON.stringify(run.noise.reply).slice(0, 400));
         }
         if (run.clap && d.rt60_runs && run.clap.reply === clapBefore) {
           return done("SELFTEST FAIL: a quiet-room profile change did not re-score the claps");
@@ -1119,7 +1817,7 @@
         // A user's yaml, as the file picker would hand it over: one without a profile_name
         // is refused and the profile in use stays; a named one is used and re-scores the take.
         await useProfile("noise", { name: "nameless.yaml", text: "snr:\n  warn_below: 40.0\n" }, "yours");
-        if ($("noise-profile-error").hidden || profiles.noise.choice !== "default" || $("noise-profile").value !== "default") {
+        if ($("noise-profile-error").hidden || profiles.noise.choice !== "yours" || profiles.noise.profile.name !== "default.yaml") {
           return done("SELFTEST FAIL: a yaml without profile_name was not refused");
         }
         await useProfile("noise", { name: "mine.yaml", text: "profile_name: Selftest\nsnr:\n  warn_below: 40.0\n" }, "yours");
@@ -1128,15 +1826,29 @@
               && $("noise-profile").value === "yours" && $("noise-profile-error").hidden)) {
           return done("SELFTEST FAIL: re-scoring under a user's yaml " + JSON.stringify(run.noise.reply).slice(0, 400));
         }
-        // A room-reflection yaml that is a noise profile is refused, and Strict stays.
+        // A room-reflection yaml that is a noise profile is refused, and the Default band stays.
         if (run.clap) {
           await useProfile("rt60", { name: "noise.yaml", text: "profile_name: Wrong core\nsnr:\n  warn_below: 40.0\n" }, "yours");
-          if ($("rt60-profile-error").hidden || profiles.rt60.choice !== "strict") {
+          if ($("rt60-profile-error").hidden || profiles.rt60.choice !== "platform_band") {
             return done("SELFTEST FAIL: a noise yaml was not refused as a room-reflection profile");
           }
         }
-        done(`SELFTEST PASS: ${levelLine}; ${noiseLine}; ${clapLine}; ${ceilingLine}${strictLine}; ` +
-             `re-scored under Default: ${d.noise.disposition}; a nameless yaml refused; ` +
+        // A quiet room scored into the lo-fi band: room reflection does not run, its card says
+        // so at the top, and the noise alone sets the environment cap at 2.
+        let lofiLine = "";
+        if (run.clap) {
+          await useProfile("noise", { name: "warn.yaml", text: "profile_name: Selftest WARN\nsnr:\n  warn_below: 70.0\n  caution_below: 80.0\n" }, "yours");
+          await ceilingUpdate;
+          const w = lastSummary && lastSummary.ok ? lastSummary.result.ceiling : null;
+          if (!(run.noise.reply.result.noise.disposition === "WARN" && !$("clap-notice").hidden
+                && $("clap-notice").textContent.includes("lo-fi band") && $("clap-card").classList.contains("skipped")
+                && w && w.ceiling === 2 && !w.rt60_runs && w.components.environment.cap === 2)) {
+            return done("SELFTEST FAIL: the lo-fi band " + JSON.stringify(w).slice(0, 300));
+          }
+          lofiLine = "; a WARN room skips room reflection with the notice up, ceiling 2";
+        }
+        done(`SELFTEST PASS: the phrase edits and resets; ${levelLine}, plays, pauses and seeks; ${noiseLine}; ${clapLine}; ${ceilingLine}${strictLine}${lofiLine}; ` +
+             `re-scored under a user's yaml: ${d.noise.disposition}; a nameless yaml refused; ` +
              `under a user's yaml (WARN below 40): ${y.noise.disposition}` + (run.clap ? "; a noise yaml refused for room reflection" : ""));
       } catch (e) { done("SELFTEST FAIL: " + String(e.message || e)); }
     }

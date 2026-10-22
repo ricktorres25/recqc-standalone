@@ -66,11 +66,12 @@ from cores import tiers
 # records used); "platform_band" is the policy the live platform runs.
 PROFILES = ("default", "platform_band")
 
-# The page's selector: shipped profiles per core (Rick 2026-10-22, one selector per
-# core). "default" is the core's built-in config, what the platform runs when its
-# setting is empty. The RT60 core's built-in config is Strict (same name and numbers as
-# configs/rt60/strict.yaml), so RT60 lists Strict alone. There is no noise Strict or
-# Forgiving, here or on the platform.
+# The shipped profiles the runner accepts, per core. The page offers platform_band alone
+# (shown as Default band) and the user's yaml (Rick 2026-10-22); the others stay for the
+# command line and the parity test. "default" is the core's built-in config, what the
+# platform runs when its setting is empty. The RT60 core's built-in config is Strict
+# (same name and numbers as configs/rt60/strict.yaml), so RT60 lists Strict alone. There
+# is no noise Strict or Forgiving, here or on the platform.
 SHIPPED_PROFILES = {"noise": ("platform_band", "default"),
                     "rt60": ("platform_band", "strict", "forgiving")}
 CORE_MODULES = {"noise": noise_core, "rt60": rt60_core}
@@ -531,10 +532,11 @@ def metric_rows(level, noise, clap, capture):
     cores' own dispositions; the edges come from the thresholds each record carries."""
     rows = []
 
+    # A banded row also carries all its edges and bands, so the page can draw the rail.
     def add(metric, value, unit, status, band=None, edges=None, bands=None, margin_unit=None, note=None):
         rows.append({"metric": metric, "value": value, "unit": unit, "status": status, "band": band,
                      "margins": margins(value, edges, bands, band, margin_unit or unit) if edges else [],
-                     "note": note})
+                     "edges": edges, "bands": bands, "note": note})
 
     capture = capture or {}
     if capture.get("bypass"):

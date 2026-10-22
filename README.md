@@ -24,14 +24,18 @@ and open <http://localhost:8000> in Chrome. A page opened straight from the file
 
 1. Wait for "Analysis engine ready". The first visit downloads about 32 MB (Python and the cores).
 2. Turn on the mic. Chrome asks for permission the first time.
-3. Press Record, read the phrase (or anything else) for about five seconds, and press Stop.
+3. Press Record, read the phrase for about five seconds, and press Stop. The phrase is a text box: write your own, in any language, and this browser remembers it.
 4. Read the result: the mic-processing check, the format verdict and the level check, each with its numbers and reasons.
 5. Once the level check passes, press Record room tone and stay silent and still for at least five seconds (it stops on its own at 12 s). Leave your gain where it was: the signal-to-noise ratio is the level take's speech level over this room's noise floor.
 6. On a quiet room that passes, Save noise profile writes the room tone, trimmed to its longest unbroken quiet stretch, as a 48 kHz, 24-bit WAV, with the measurement record as JSON. Chrome asks for a folder; other browsers download both files.
 7. Once the quiet room passes, press Record claps, take three steps back from the mic and clap with cupped hands each time CLAP NOW shows; it pauses while the meter's peak-hold line holds your last clap. The take stops on its own, three seconds after the sixth clap it counts (or at 30 s). If the claps did not give a clear enough read, Add more claps adds a take to them and the whole set is scored again, as on the platform. In a room whose quiet room reads WARN this check does not run: the platform skips it there, because the noise alone caps the tier at 2.
-8. Read the Tier ceiling card: the ceiling, its three caps and why, and one row per measurement with the band it landed in and how far it sits from the nearest threshold. If a check failed its gate there is no ceiling, as on the platform; the card says which check, and what the ceiling would have been.
+8. Read the result at the top: the tier ceiling, the three caps that set it and why, and under each take every measurement on its band rail, with how far it sits from the nearest threshold. If a check failed its gate there is no ceiling, as on the platform; the page says which check, and what the ceiling would have been.
 
-The Scoring profile card picks the policy each room check is scored under. Quiet room: Platform Band (what the live platform runs), the noise core's Default, or your own yaml with `profile_name` and an `snr` section. Room reflection: Platform Band, Strict (the RT60 core's built-in) or Forgiving, or your own yaml with `profile_name` and a `gate` section. A yaml is read on your machine, never uploaded. Changing a profile re-scores the takes you already have; a new quiet-room profile re-scores the claps too, since they read its room tone.
+The live meter and the mic check stay pinned on the left (on a phone, across the top) while you work down the page.
+
+Each room check has its own "Scored under" selector: the Default band, which is what the live platform runs (its Platform Band profile, the name its records carry), or your own yaml. A quiet-room yaml sets `profile_name` and an `snr` section; a room-reflection yaml sets `profile_name` and a `gate` section. A yaml is read on your machine, never uploaded. Changing a profile re-scores the takes you already have; a new quiet-room profile re-scores the claps too, since they read its room tone.
+
+Every take can be played back from its waveform, and a click on the waveform moves the playhead there. Playback stops when a take starts recording. The room tone, near silent as recorded, can also be played raised to a -6 dBFS peak.
 
 Add `?debug` to the address for a "Download this take" link.
 
@@ -41,7 +45,7 @@ To be written. See the design note, section 2.
 
 ## Profiles
 
-To be written. See the design note, section 6.
+To be written (M5): how to write your own quiet-room and room-reflection profiles, with a template yaml for each that can be copied and edited (the keys each core reads, which ones `profile_name` and the `snr` or `gate` section must set, and what a value moves). See the design note, section 6.
 
 ## The level-check phrase
 
