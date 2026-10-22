@@ -31,9 +31,23 @@
     select { padding: 0.35rem 0.5rem; }
     button:disabled, select:disabled { opacity: 0.45; cursor: default; }
     .timer { font-family: ui-monospace, Menlo, monospace; min-width: 4rem; }
-    .meter { height: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
-             margin: 1rem 0 0.4rem; overflow: hidden; }
+    .meter { position: relative; height: 14px; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 4px; margin: 1rem 0 0.4rem; overflow: hidden; }
     #bar { height: 100%; width: 0; background: var(--bar); transition: width 50ms linear; }
+    #band { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--ink); border-right: 1px dashed var(--ink);
+            background: color-mix(in srgb, var(--ink) 12%, transparent); pointer-events: none; }
+    #hold { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink);
+            opacity: 0; pointer-events: none; }
+    /* The platform's clap cue (its canvas fix #9): it pulses while claps record and the
+       peak-hold line is not pinned by a clap. */
+    .clap-cue { display: none; align-items: center; justify-content: center; gap: 8px; margin: 0.75rem 0;
+                padding: 0.4rem 0; border: 1px dashed var(--line); border-radius: 6px; color: var(--accent);
+                font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.18em; }
+    .clap-cue.show { display: flex; animation: clapPulse 0.9s ease-in-out infinite; }
+    @keyframes clapPulse { 0%, 100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+    @media (prefers-reduced-motion: reduce) { .clap-cue.show { animation: none; } }
+    .ceiling-line { font-size: 1.25rem; font-weight: 600; margin: 0.25rem 0 0.5rem; }
+    .greyed { color: var(--soft); font-weight: 600; }
     .readings { font-family: ui-monospace, Menlo, monospace; font-size: 0.85rem; margin: 0 0 0.75rem; }
     .pass { color: var(--pass); } .warn { color: var(--warn); } .fail { color: var(--fail); }
     table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
@@ -45,7 +59,7 @@
 </head>
 <body>
   <h1>RecQC Standalone</h1>
-  <p class="banner">In development: the level check and the quiet room run. The room-reflection check, and the tier ceiling it feeds, come in a later milestone.</p>
+  <p class="banner">In development: the level check, the quiet room, the room-reflection check and the tier ceiling run. Installing it as an app, for offline use, comes in a later milestone.</p>
   <p>A recording-chain check that runs in your browser, on your machine: the audio side of the MAD collection platform's Rec QC, scored by the platform's own measurement cores. Nothing is uploaded.</p>
   <p id="browser-note" class="warn" hidden>This browser is not Chrome or Chromium, so the capture chain is unverified.</p>
   <p id="engine" class="soft" aria-live="polite">Starting the analysis engine...</p>
@@ -60,7 +74,7 @@
       <button id="stop" disabled>Stop</button>
       <span id="timer" class="timer"></span>
     </div>
-    <div class="meter" aria-hidden="true"><div id="bar"></div></div>
+    <div class="meter" aria-hidden="true"><div id="bar"></div><div id="band" hidden></div><div id="hold"></div></div>
     <p id="readings" class="readings">Live meter: off</p>
     <p id="readback"></p>
     <p class="fine">The mic check reads what the browser reports. It cannot see processing before the browser, such as macOS Voice Isolation.</p>
@@ -81,6 +95,18 @@
     </div>
     <p id="noise-profile-error" class="fail" hidden></p>
     <p id="noise-profile-info" class="fine">Platform Band. Its thresholds show once the analysis engine is ready.</p>
+    <div class="controls">
+      <label for="rt60-profile">Room reflection</label>
+      <select id="rt60-profile">
+        <option value="platform_band">Platform Band</option>
+        <option value="strict">Strict (the core's built-in)</option>
+        <option value="forgiving">Forgiving</option>
+      </select>
+      <button id="rt60-yaml-pick" type="button">Load your own yaml...</button>
+      <input id="rt60-yaml" type="file" accept=".yaml,.yml" hidden>
+    </div>
+    <p id="rt60-profile-error" class="fail" hidden></p>
+    <p id="rt60-profile-info" class="fine">Platform Band. Its thresholds show once the analysis engine is ready.</p>
   </section>
 
   <section class="card" aria-labelledby="noise-title">
@@ -95,6 +121,25 @@
     <div id="noise-result" aria-live="polite"></div>
   </section>
 
+  <section class="card" aria-labelledby="clap-title">
+    <h2 id="clap-title">Room reflection</h2>
+    <p>Do not adjust your level. Take 3 steps back from the mic. Clap with cupped hands each time CLAP NOW shows (it hides while the peak-hold line on the meter is pinned by your last clap), and keep going until the recording stops on its own (usually around 6 claps). Aim inside the shaded band on the meter: too hard can distort the reading, too soft may not register, though a few outside it is fine.</p>
+    <div class="controls">
+      <button id="clap-record" disabled>Record claps</button>
+      <button id="clap-stop" disabled>Stop</button>
+      <span id="clap-timer" class="timer"></span>
+    </div>
+    <div id="clap-cue" class="clap-cue" aria-hidden="true">👏 CLAP NOW</div>
+    <p id="clap-status" class="fine"></p>
+    <div id="clap-result" aria-live="polite"></div>
+  </section>
+
+  <section class="card" aria-labelledby="ceiling-title">
+    <h2 id="ceiling-title">Tier ceiling</h2>
+    <div id="ceiling" aria-live="polite"><p class="soft">Record a level take to start.</p></div>
+    <p class="fine">The environment cap always applies here. On the platform it is a deploy setting (env_tier_cap_enabled), on by default.</p>
+  </section>
+
   <p class="fine">Every number is a property of this capture chain, in this room, now, in uncalibrated dBFS. It says whether a take would clear the platform's gates, not how a recording will score with a listener or a model.</p>
   <p class="fine"><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/README.md">README</a> · <a href="https://github.com/ricktorres25/recqc-standalone/blob/main/DESIGN_NOTE.md">Design note</a> · <a href="https://github.com/ricktorres25/recqc-standalone">Repository</a></p>
 
@@ -107,7 +152,7 @@
     }
   </script>
   <script type="module">
-    import { Capture, bypassState, MAX_SECONDS } from "./app/capture.mjs";
+    import { Capture, ClapCounter, CLAP_RANGE_DB, bypassState, MAX_SECONDS } from "./app/capture.mjs";
 
     const $ = (id) => document.getElementById(id);
     const params = new URLSearchParams(location.search);
@@ -160,24 +205,52 @@
       const buffer = await wav.arrayBuffer();
       return request("noise", { wav: buffer, speech_level_dba: speech, profile }, [buffer]);
     }
+    // The clap takes in recording order, and a copy of the room tone the quiet room kept
+    // (the page keeps its own for Save noise profile).
+    async function analyzeClap(takes, np, profile) {
+      const wavs = await Promise.all(takes.map((t) => t.wav.arrayBuffer()));
+      const npCopy = np ? np.slice(0) : null;
+      return request("clap", { wavs, np: npCopy, profile }, npCopy ? [...wavs, npCopy] : wavs);
+    }
 
     // ---- The live meter, drawn from the worklet's messages ----
     // The platform's meter thresholds: the bar warns above -3 dBFS; loudness reads green
     // above -36 LUFS and red below -42.
     const PEAK_MIN_DB = -60, PEAK_WARN_DB = -3, LUFS_GREEN_ABOVE = -36, LUFS_RED_BELOW = -42;
+    // The platform's peak hold and clap cue: the hold line pins at the loudest peak for
+    // 1.5 s, then re-pins at the current one. The cue shows while a clap take records and
+    // the hold is not pinned by an impulse at or above -35 dBFS, deliberately below the
+    // core's -20 dBFS detection floor, so a too-quiet clap still paces the cue. Only the
+    // counter (capture.mjs) counts claps, at the core's own floor.
+    const PEAK_HOLD_SEC = 1.5, CLAP_CUE_FLOOR_DB = -35;
+    let peakHoldDb = -Infinity, peakHoldUntil = 0;
     let meter = null, peakSince = -Infinity;   // the highest peak since the last frame drawn
+    const clapCounter = new ClapCounter();   // counts only while a clap take records
     const onMeter = (d) => {
       if (stage === "off") return;   // a last message can arrive after the mic is turned off
       meter = d;
       peakSince = Math.max(peakSince, d.peakDb);
+      clapCounter.onPeak(d.peakDb, performance.now() / 1000);
     };
+    // The clap range on the meter: the bar's scale runs from PEAK_MIN_DB to 0 dBFS.
+    $("band").style.left = `${((CLAP_RANGE_DB[0] - PEAK_MIN_DB) / -PEAK_MIN_DB * 100).toFixed(1)}%`;
+    $("band").style.width = `${((CLAP_RANGE_DB[1] - CLAP_RANGE_DB[0]) / -PEAK_MIN_DB * 100).toFixed(1)}%`;
     const db = (v, unit) => (Number.isFinite(v) ? `${v.toFixed(1)} ${unit}` : "-");
     const lufsClass = (v) => (!Number.isFinite(v) ? "" : v > LUFS_GREEN_ABOVE ? "pass"
                               : v < LUFS_RED_BELOW ? "fail" : "warn");
+    const meterShare = (v) => Math.min(1, Math.max(0, (v - PEAK_MIN_DB) / -PEAK_MIN_DB));
     function drawMeter() {
+      const now = performance.now() / 1000;
       if (meter) {
+        if (Number.isFinite(peakSince) && (peakSince > peakHoldDb || now > peakHoldUntil)) {
+          peakHoldDb = peakSince;
+          peakHoldUntil = now + PEAK_HOLD_SEC;
+        }
+        const holdLive = Number.isFinite(peakHoldDb) && now <= peakHoldUntil;
+        $("hold").style.left = `${(meterShare(peakHoldDb) * 100).toFixed(1)}%`;
+        $("hold").style.opacity = holdLive ? 1 : 0;
         const p = Number.isFinite(peakSince) ? peakSince : PEAK_MIN_DB;
-        const share = Math.min(1, Math.max(0, (p - PEAK_MIN_DB) / -PEAK_MIN_DB));
+        const share = meterShare(p);
         $("bar").style.width = `${(share * 100).toFixed(1)}%`;
         $("bar").style.background = meter.everClipped ? "var(--fail)" : p > PEAK_WARN_DB ? "var(--warn)" : "var(--bar)";
         peakSince = -Infinity;
@@ -188,6 +261,8 @@
           span(db(meter.momLufs, "LUFS"), lufsClass(meter.momLufs)), " · integrated ",
           span(db(meter.intLufs, "LUFS"), lufsClass(meter.intLufs)));
       }
+      const holdImpulse = Number.isFinite(peakHoldDb) && now <= peakHoldUntil && peakHoldDb >= CLAP_CUE_FLOOR_DB;
+      $("clap-cue").classList.toggle("show", stage === "recording" && takeKind === "clap" && !holdImpulse);
       requestAnimationFrame(drawMeter);
     }
     requestAnimationFrame(drawMeter);
@@ -220,20 +295,30 @@
 
     // ---- This run: the takes scored since the mic was turned on ----
     // Turning the mic on starts a new run. A new level take clears the quiet room, whose
-    // SNR is measured against that take's speech level (and the gain may have moved).
-    let run = { level: null, noise: null };
+    // SNR is measured against that take's speech level (and the gain may have moved),
+    // and a new room-tone take clears room reflection, which reads that room tone.
+    let run = { level: null, noise: null, clap: null };
     const levelPassed = () => !!(run.level && run.level.reply.ok &&
       (run.level.reply.result.level_gate || [])[0] === "PASS");
     const speechLevel = () => run.level.reply.result.level.speech_level_dba;
+    const noisePassed = () => !!(run.noise && run.noise.reply.ok &&
+      (run.noise.reply.result.noise_gate || [])[0] === "PASS");
+    // The platform's conditional stage (rt60_in_band, Rick's M4 ruling R1): room
+    // reflection runs only when the quiet room did not place the room in the lo-fi band.
+    const rt60Runs = () => noisePassed() && run.noise.reply.result.rt60_runs === true;
+    const LOFI_SKIP = "Not run for this room: the quiet room placed it in the lo-fi band (noise WARN), " +
+      "where the platform skips room reflection. The noise alone caps the ceiling at 2 (Lo-fi).";
 
     // ---- The take controls ----
     // stage is the mic's state: off, armed, starting, recording or stopping. takeKind is
-    // the take being recorded: "phrase" (Set your level) or "noise" (Quiet room). busy is
-    // set while a profile is checked or a take is re-scored.
+    // the take being recorded: "phrase" (Set your level), "noise" (Quiet room) or "clap"
+    // (Room reflection); clapAppend is set when a clap take adds to the claps already
+    // taken. busy is set while a profile is checked or a take is re-scored.
     const capture = new Capture(onMeter);
-    let stage = "off", takeKind = null, busy = false, readback = null, timer = null, startedAt = 0;
+    let stage = "off", takeKind = null, clapAppend = false, busy = false, readback = null, timer = null, startedAt = 0;
     const TAKE_UI = { phrase: { record: "record", timer: "timer", result: "result" },
-                      noise: { record: "noise-record", timer: "noise-timer", result: "noise-result" } };
+                      noise: { record: "noise-record", timer: "noise-timer", result: "noise-result" },
+                      clap: { record: "clap-record", timer: "clap-timer", result: "clap-result" } };
     function setStage(next) {
       stage = next;
       const active = bypassState(readback || {}) === "active";
@@ -251,7 +336,19 @@
       $("noise-status").textContent = blocked;
       $("noise-record").disabled = busy || next !== "armed" || !!blocked;
       $("noise-stop").disabled = !(next === "recording" && takeKind === "noise");
-      $("noise-profile").disabled = $("noise-yaml-pick").disabled = !idle;
+      // Room reflection runs only after this run's quiet-room gate passed, and only
+      // outside the lo-fi band, as on the platform.
+      const clapBlocked = next === "off" ? "Turn on the mic first, in Set your level."
+        : active ? "The mic check found processing active, so this stage does not run either."
+        : !noisePassed() ? "Pass the quiet room first: this check reads the room tone it kept."
+        : !rt60Runs() ? LOFI_SKIP
+        : "";
+      $("clap-status").textContent = clapBlocked;
+      $("clap-record").disabled = busy || next !== "armed" || !!clapBlocked;
+      $("clap-stop").disabled = !(next === "recording" && takeKind === "clap");
+      if ($("clap-more")) $("clap-more").disabled = busy || next !== "armed" || !!clapBlocked;
+      $("band").hidden = !(next === "recording" && takeKind === "clap");
+      for (const core of ["noise", "rt60"]) $(`${core}-profile`).disabled = $(`${core}-yaml-pick`).disabled = !idle;
     }
     setStage("off");
 
@@ -259,6 +356,8 @@
       if (stage === "armed") {   // the same button turns the mic off again
         capture.disarm();
         meter = null;
+        peakHoldDb = -Infinity;
+        $("hold").style.opacity = 0;
         $("bar").style.width = "0";
         $("readings").textContent = "Live meter: off";
         $("readback").replaceChildren();
@@ -275,41 +374,61 @@
         return;
       }
       // A new run: with the mic reopened, the device or the gain may have changed.
-      run = { level: null, noise: null };
+      run = { level: null, noise: null, clap: null };
       for (const ui of Object.values(TAKE_UI)) { $(ui.result).replaceChildren(); $(ui.timer).textContent = ""; }
       $("record").textContent = "Record";
       $("noise-record").textContent = "Record room tone";
+      $("clap-record").textContent = "Record claps";
       showReadback(readback);
       setStage("armed");
+      updateCeiling();
     };
 
-    async function startTake(kind) {
+    // The results of the stages after `kind`, which a new take of `kind` clears.
+    function clearAfter(kind) {
+      const later = kind === "phrase" ? ["noise", "clap"] : kind === "noise" ? ["clap"] : [];
+      for (const k of later) {
+        run[k] = null;
+        $(TAKE_UI[k].result).replaceChildren();
+        $(TAKE_UI[k].timer).textContent = "";
+      }
+      if (later.includes("noise")) $("noise-record").textContent = "Record room tone";
+      if (later.includes("clap")) $("clap-record").textContent = "Record claps";
+    }
+
+    // append: a clap take that adds to the claps already taken (the platform's "more claps").
+    async function startTake(kind, append = false) {
       if (stage !== "armed" || busy) return;
       takeKind = kind;
+      clapAppend = kind === "clap" && append && !!run.clap;
       setStage("starting");
-      $(TAKE_UI[kind].result).replaceChildren();
-      if (kind === "phrase") {   // a new level take starts the run's results over
-        run = { level: null, noise: null };
-        $("noise-result").replaceChildren();
-        $("noise-timer").textContent = "";
-        $("noise-record").textContent = "Record room tone";
-      }
+      if (kind === "phrase") run = { level: null, noise: null, clap: null };   // the run starts over
+      if (kind === "clap" && !clapAppend) run.clap = null;
+      if (!clapAppend) $(TAKE_UI[kind].result).replaceChildren();
+      clearAfter(kind);
+      updateCeiling();
+      clapCounter.reset(kind === "clap");
+      peakHoldDb = -Infinity;
+      peakHoldUntil = 0;
       startedAt = performance.now();   // the platform's auto-stop counts the pre-roll too
       await capture.start();
       setStage("recording");
       timer = setInterval(() => {
         const s = (performance.now() - startedAt) / 1000;
-        $(TAKE_UI[kind].timer).textContent = `${s.toFixed(1)} s`;
-        if (s >= MAX_SECONDS[kind]) stopTake();
+        $(TAKE_UI[kind].timer).textContent = kind === "clap"
+          ? `${s.toFixed(1)} s, ${clapCounter.count} clap${clapCounter.count === 1 ? "" : "s"} counted` : `${s.toFixed(1)} s`;
+        if (s >= MAX_SECONDS[kind] || (kind === "clap" && clapCounter.stopDue(performance.now() / 1000))) stopTake();
       }, 100);
     }
     $("record").onclick = () => startTake("phrase");
     $("noise-record").onclick = () => startTake("noise");
-    $("stop").onclick = $("noise-stop").onclick = () => stopTake();
+    $("clap-record").onclick = () => startTake("clap");
+    $("stop").onclick = $("noise-stop").onclick = $("clap-stop").onclick = () => stopTake();
 
     async function stopTake() {
       if (stage !== "recording") return;
       clearInterval(timer);
+      clapCounter.reset(false);
       const kind = takeKind;
       setStage("stopping");
       const take = await capture.stop();
@@ -334,13 +453,22 @@
         run.level = { take, reply, bypass };
         renderLevel(reply, take, bypass);
         $("record").textContent = "Record again";
-      } else {
-        reply = await analyzeNoise(take.wav, speechLevel(), noiseProfile);
-        run.noise = { take, reply, profile: noiseProfile, readback, at: new Date() };
+      } else if (kind === "noise") {
+        reply = await analyzeNoise(take.wav, speechLevel(), profiles.noise.profile);
+        run.noise = { take, reply, profile: profiles.noise.profile, readback, at: new Date() };
         renderNoise();
         $("noise-record").textContent = "Record again";
+      } else {
+        // More claps: this take joins the ones before it and the whole set is analysed
+        // again, as the platform's append does.
+        const takes = clapAppend && run.clap ? [...run.clap.takes, take] : [take];
+        reply = await analyzeClap(takes, run.noise.reply.np, profiles.rt60.profile);
+        run.clap = { takes, reply, profile: profiles.rt60.profile };
+        renderClap();
+        $("clap-record").textContent = "Start over";
       }
       setStage("armed");
+      await updateCeiling();
       return { take, reply };
     }
 
@@ -410,84 +538,119 @@
     }
 
     // ---- The scoring profile (design note section 6; one per core, Rick 2026-10-22) ----
-    // The quiet room's profile. The room-reflection row comes with that check.
-    let noiseProfile = { name: "platform_band" };   // {name} shipped, or {name, text} the user's yaml
-    let noiseChoice = "platform_band", noiseDesc = null, yoursProfile = null;
-    // The bands as the core classifies them: PASS starts at caution_below (pass_above is
-    // recorded, never compared).
+    // Per core: the profile in use ({name} shipped, or {name, text} the user's yaml), the
+    // selector's choice, the worker's description of it, and the user's yaml once loaded.
+    const profiles = {
+      noise: { profile: { name: "platform_band" }, choice: "platform_band", desc: null, yours: null },
+      rt60: { profile: { name: "platform_band" }, choice: "platform_band", desc: null, yours: null },
+    };
+    // The bands as the cores classify them. Noise: PASS starts at caution_below
+    // (pass_above is recorded, never compared). RT60: each band includes its upper edge.
     const bands = (t) => `REJECT below ${t.reject_below} dB SNR, WARN below ${t.warn_below}, ` +
                          `CAUTION below ${t.caution_below}, PASS from ${t.caution_below}`;
-    function showProfile() {
-      const { stamp, config } = noiseDesc;
-      $("noise-profile-info").textContent = `${stamp.profile_name}, ` +
-        (stamp.source === "yours" ? `your yaml (${noiseProfile.name}), read on this machine and never uploaded`
+    const rt60Bands = (g) => (g.production_below != null
+      ? `pass to ${g.pass_below} s, production to ${g.production_below} s, borderline to ${g.reject_above} s, reject above`
+      : `pass to ${g.pass_below} s, borderline to ${g.reject_above} s, reject above`);
+    const DESCRIBE = {
+      noise: (config) => bands(config.snr),
+      rt60: (config) => `${rt60Bands(config.gate)}; a clap's fit counts at r² ${config.quality.r_squared_min} or more` +
+        (config.gate.dry_room_pass ? "; a room too dry to measure passes when its claps agree" : ""),
+    };
+    function showProfile(core) {
+      const { profile, desc: { stamp, config } } = profiles[core];
+      $(`${core}-profile-info`).textContent = `${stamp.profile_name}, ` +
+        (stamp.source === "yours" ? `your yaml (${profile.name}), read on this machine and never uploaded`
                                   : "shipped") +
-        `: ${bands(config.snr)}. config sha256 ${stamp.config_sha256.slice(0, 16)}`;
+        `: ${DESCRIBE[core](config)}. config sha256 ${stamp.config_sha256.slice(0, 16)}`;
     }
     // Check a profile in the worker and, if the core accepts it, score with it from now on;
-    // a quiet-room take already scored in this run is re-scored under it.
-    async function useNoiseProfile(profile, choice) {
+    // a take already scored in this run under that core is re-scored under it.
+    async function useProfile(core, profile, choice) {
+      const p = profiles[core], select = $(`${core}-profile`), error = $(`${core}-profile-error`);
       busy = true;
       setStage(stage);
-      const reply = await request("profile", { core: "noise", profile });
+      const reply = await request("profile", { core, profile });
       busy = false;
       if (!reply.ok) {
-        $("noise-profile").value = noiseChoice;   // the profile in use stays
-        $("noise-profile-error").textContent = `${profile.name} was not loaded: ${lastLine(reply.error)}`;
-        $("noise-profile-error").hidden = false;
+        select.value = p.choice;   // the profile in use stays
+        error.textContent = `${profile.name} was not loaded: ${lastLine(reply.error)}`;
+        error.hidden = false;
         setStage(stage);
         return;
       }
-      $("noise-profile-error").hidden = true;
+      error.hidden = true;
       if (choice === "yours") {
-        yoursProfile = profile;
-        let option = $("noise-profile").querySelector('option[value="yours"]');
-        if (!option) { option = el("option"); option.value = "yours"; $("noise-profile").append(option); }
+        p.yours = profile;
+        let option = select.querySelector('option[value="yours"]');
+        if (!option) { option = el("option"); option.value = "yours"; select.append(option); }
         option.textContent = `Yours: ${reply.result.stamp.profile_name} (${profile.name})`;
       }
-      noiseProfile = profile;
-      noiseChoice = choice;
-      noiseDesc = reply.result;
-      $("noise-profile").value = choice;
-      showProfile();
+      Object.assign(p, { profile, choice, desc: reply.result });
+      select.value = choice;
+      showProfile(core);
       setStage(stage);
-      if (run.noise) await rescoreNoise();
+      if (core === "noise" && run.noise) await rescoreNoise();
+      else if (core === "rt60" && run.clap) await rescoreClap();
     }
-    $("noise-profile").onchange = () => {
-      const choice = $("noise-profile").value;
-      useNoiseProfile(choice === "yours" ? yoursProfile : { name: choice }, choice);
-    };
-    $("noise-yaml-pick").onclick = () => { $("noise-yaml").value = ""; $("noise-yaml").click(); };
-    $("noise-yaml").onchange = async () => {
-      const file = $("noise-yaml").files[0];
-      if (!file) return;
-      if (file.size > 1e6) {   // a profile is a few hundred bytes; this is not one
-        $("noise-profile-error").textContent = `${file.name} was not loaded: at ${(file.size / 1e6).toFixed(1)} MB it is not a profile yaml.`;
-        $("noise-profile-error").hidden = false;
-        return;
-      }
-      useNoiseProfile({ name: file.name, text: await file.text() }, "yours");
-    };
-    // The shipped default, described once the engine is up (unless a choice came first).
-    request("profile", { core: "noise", profile: noiseProfile }).then((reply) => {
-      if (noiseDesc) return;
-      if (reply.ok) { noiseDesc = reply.result; showProfile(); }
-      else $("noise-profile-info").textContent = "The profile could not be read: " + lastLine(reply.error);
-    });
+    for (const core of ["noise", "rt60"]) {
+      const select = $(`${core}-profile`), input = $(`${core}-yaml`), error = $(`${core}-profile-error`);
+      select.onchange = () => {
+        const choice = select.value;
+        useProfile(core, choice === "yours" ? profiles[core].yours : { name: choice }, choice);
+      };
+      $(`${core}-yaml-pick`).onclick = () => { input.value = ""; input.click(); };
+      input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+        if (file.size > 1e6) {   // a profile is a few hundred bytes; this is not one
+          error.textContent = `${file.name} was not loaded: at ${(file.size / 1e6).toFixed(1)} MB it is not a profile yaml.`;
+          error.hidden = false;
+          return;
+        }
+        useProfile(core, { name: file.name, text: await file.text() }, "yours");
+      };
+      // The shipped default, described once the engine is up (unless a choice came first).
+      request("profile", { core, profile: profiles[core].profile }).then((reply) => {
+        if (profiles[core].desc) return;
+        if (reply.ok) { profiles[core].desc = reply.result; showProfile(core); }
+        else $(`${core}-profile-info`).textContent = "The profile could not be read: " + lastLine(reply.error);
+      });
+    }
 
-    // Score the run's room-tone take again, under the profile now in use.
+    // Score the run's room-tone take again, under the profile now in use. Room reflection
+    // read that take's room tone and its band, so it is scored again after it.
     async function rescoreNoise() {
       const prior = run.noise;
       busy = true;
       setStage(stage);
       $("noise-result").replaceChildren(el("p", "Scoring the same room-tone take under the new profile...", "soft"));
-      const reply = await analyzeNoise(prior.take.wav, speechLevel(), noiseProfile);
+      const reply = await analyzeNoise(prior.take.wav, speechLevel(), profiles.noise.profile);
       if (run.noise === prior) {
-        run.noise = { ...prior, reply, profile: noiseProfile };
+        run.noise = { ...prior, reply, profile: profiles.noise.profile };
         renderNoise();
       }
       busy = false;
       setStage(stage);
+      if (run.clap) await rescoreClap();
+      else await updateCeiling();
+    }
+
+    // Score the run's clap takes again: under a new profile, or with the quiet room's new
+    // room tone. When the quiet room no longer lets room reflection run, the takes are
+    // kept and the card says why, so a later change can score them again.
+    async function rescoreClap() {
+      const prior = run.clap;
+      if (rt60Runs()) {
+        busy = true;
+        setStage(stage);
+        $("clap-result").replaceChildren(el("p", "Scoring the same claps again...", "soft"));
+        const reply = await analyzeClap(prior.takes, run.noise.reply.np, profiles.rt60.profile);
+        if (run.clap === prior) run.clap = { ...prior, reply, profile: profiles.rt60.profile };
+        busy = false;
+      }
+      renderClap();
+      setStage(stage);
+      await updateCeiling();
     }
 
     // ---- The quiet-room result ----
@@ -560,6 +723,182 @@
       box.append(details);
     }
 
+    // ---- The room-reflection result ----
+    // The platform page's line for the core's too-far-back failure, in its words.
+    const TOO_FAR_BACK = "That clap read too quiet/distant — take one step toward the mic and try again.";
+    // What each band does to the environment cap (_env_ceiling); an RT60 error caps nothing.
+    const NOISE_CAP = { REJECT: 2, WARN: 2, CAUTION: 3 };
+    const RT60_CAP = { reject: 2, borderline: 2, production: 3 };
+    const RT60_CLASS = { pass: "pass", production: "warn", borderline: "warn", reject: "fail", error: "fail" };
+    // The fit r² of the claps that carry a 1 kHz value: [lowest, highest], or null.
+    function usableR2(rt) {
+      const r2 = (rt.claps || []).filter((c) => c.valid && c.rt60_per_band && c.rt60_per_band["1000"] != null)
+        .map((c) => c.fit_quality["1000"].r_squared);
+      return r2.length ? [Math.min(...r2), Math.max(...r2)] : null;
+    }
+    function renderClap() {
+      const box = $("clap-result");
+      box.replaceChildren();
+      if (!run.clap) return;
+      const { takes, reply, profile } = run.clap;
+      if (!rt60Runs()) {
+        box.append(el("p", (noisePassed() ? LOFI_SKIP : "Not scored: the quiet room does not pass its gate now.") +
+          " These claps are kept, and a profile change that lets this check run scores them again.", "soft"));
+        return;
+      }
+      if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
+      const r = reply.result;
+      const seconds = takes.reduce((sum, tk) => sum + tk.samples.length / tk.rate, 0).toFixed(1);
+      box.append(el("p", `${takes.length === 1 ? "Take" : `${takes.length} takes`}: ${seconds} s at ${takes[0].rate} Hz, 24-bit mono.`, "soft"));
+      if (r.refused) { box.append(el("p", r.refused, "fail")); return; }
+      if (r.profile.error) { box.append(el("p", "The profile did not load: " + r.profile.error, "fail")); return; }
+
+      const table = el("table");
+      table.append(row(["Check", "Result", "Detail"], "th"));
+      const rt = r.rt60;
+      if (rt) {
+        const s = rt.summary || {}, dry = rt.dry_room, cc = r.clap_collection, r2 = usableR2(rt);
+        const value = s.rt60_gate_metric != null ? `${fmt(s.rt60_gate_metric, 3)} s`
+          : dry && dry.agrees ? `too dry to measure: ${dry.n_below_floor} of ${dry.n_claps_valid} valid claps sit below the 0.10 s floor and agree`
+          : "not measured";
+        const tr = row(["RT60 at 1 kHz (T20)", rt.disposition, `${value}. ${r.profile.profile_name}: ${rt60Bands(r.thresholds.gate)}.`]);
+        tr.children[1].className = RT60_CLASS[rt.disposition] || "";
+        table.append(tr);
+        table.append(row(["Claps", `${cc.usable} usable`,
+          `${cc.detected} detected, ${s.n_claps_valid} valid, ${cc.usable} with a 1 kHz fit (the platform wants ${cc.needed})` +
+          (r2 ? `; fit r² ${fmt(r2[0], 3)} to ${fmt(r2[1], 3)}, the profile's minimum ${r.thresholds.r_squared_min}` : "")]));
+      }
+      if (r.rt60_gate) {
+        const [verdict, reason] = r.rt60_gate;
+        const cap = rt && RT60_CAP[rt.disposition];
+        const detail = verdict === "PASS"
+          ? "clears the platform's room-reflection gate" + (cap ? `; the ${rt.disposition} band caps the environment at ${cap} (${TIERS[cap]})` : "")
+          : (reason || "").includes("too far back") ? TOO_FAR_BACK : (r.refusal ? r.refusal.copy : "");
+        const tr = row(["Room-reflection gate", verdict, detail + (reason ? ` (${reason})` : "")]);
+        tr.children[1].className = verdict === "PASS" ? "pass" : "fail";
+        table.append(tr);
+      }
+      if (rt) {
+        table.append(row(["Noise profile", rt.noise_profile_used ? "room tone" : "none", rt.noise_profile_used
+          ? `the room tone the quiet room kept (${fmt(run.noise.reply.result.np.duration, 1)} s), as on the platform`
+          : "none was read, so the core estimated the noise from each decay's tail"]));
+      }
+      if (takes.length > 1) {
+        table.append(row(["Takes joined", String(takes.length), "joined end to end and analysed whole, as the platform does when it asks for more claps"]));
+      }
+      table.append(row(["Profile", r.profile.profile_name,
+        `${r.profile.source === "yours" ? `your yaml (${profile.name})` : "shipped"}; config sha256 ${r.profile.config_sha256}`]));
+      if (r.working_copy && r.working_copy.derived) {
+        table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
+      }
+      box.append(table);
+
+      // More claps, exactly when the platform would ask for them (clap_collection_state).
+      const cc = r.clap_collection;
+      if (cc && cc.collect_more) {
+        const more = el("button", "Add more claps"), p = el("p");
+        more.id = "clap-more";
+        more.type = "button";
+        more.onclick = () => startTake("clap", true);
+        p.append(more);
+        box.append(p, el("p", `${cc.usable} of ${cc.needed} usable claps so far, from ${cc.detected} detected. ` +
+          `The platform asks for more until ${cc.needed} are usable or ${cc.cap} are detected: the new take is added ` +
+          "to these and the whole set is analysed again. Start over discards these claps.", "fine"));
+      }
+      if (DEBUG) takes.forEach((tk, i) => box.append(takeLink(tk, `clap${i + 1}`)));
+      const details = el("details");
+      details.append(el("summary", "Full record"), el("pre", JSON.stringify({ takes: takes.map((tk) => ({
+        rate: tk.rate, seconds: Number((tk.samples.length / tk.rate).toFixed(1)), capture_bookkeeping: tk.bookkeeping })),
+        result: r }, null, 2)));
+      box.append(details);
+    }
+
+    // ---- The tier ceiling (design note sections 4.7 and 9, D3) ----
+    // Worked out in the worker from the run's results: the platform's min(format,
+    // environment, device), and one row per metric with its margins.
+    const STAGE_TITLES = { level: "Set your level", noise: "Quiet room", clap: "Room reflection" };
+    let ceilingRequests = 0, lastSummary = null, ceilingUpdate = Promise.resolve();
+    // One stage's result as the summary takes it; an analysis that failed is an error.
+    const resultOf = (entry) => (!entry ? null : entry.reply.ok ? entry.reply.result
+                                 : { error: "the analysis failed: " + lastLine(entry.reply.error) });
+    function updateCeiling() { ceilingUpdate = refreshCeiling(); return ceilingUpdate; }
+    async function refreshCeiling() {
+      const id = ++ceilingRequests;
+      if (!run.level) {
+        lastSummary = null;
+        $("ceiling").replaceChildren(el("p", "Record a level take to start.", "soft"));
+        return;
+      }
+      const rb = readback || {};
+      const reply = await request("summary", {
+        level: resultOf(run.level), noise: resultOf(run.noise), clap: rt60Runs() ? resultOf(run.clap) : null,
+        capture: { bypass: run.level.bypass, agc: rb.agc ?? null, ns: rb.ns ?? null, ec: rb.ec ?? null,
+                   is_mobile: rb.is_mobile ?? null } });
+      if (id !== ceilingRequests) return;   // a newer update supersedes this one
+      lastSummary = reply;
+      renderCeiling(reply);
+    }
+    const tierText = (n) => `${n} (${TIERS[n] || "?"})`;
+    const ONOFF = (v) => (v === false ? "off" : v === true ? "ON" : "not reported");
+    function metricValue(m) {
+      if (m.metric === "Mic check") return `${m.value} (AGC ${ONOFF(m.note.agc)}, NS ${ONOFF(m.note.ns)}, EC ${ONOFF(m.note.ec)})`;
+      if (typeof m.value !== "number") {
+        const dry = m.note && m.note.dry_room;
+        return m.value != null ? String(m.value) : dry && dry.agrees ? "below 0.10 s" : "-";
+      }
+      return `${m.value.toFixed(m.unit === "s" ? 3 : 1)} ${m.unit}`;
+    }
+    const marginText = (m) => m.margins.map((x) => `${x.by.toFixed(x.unit === "s" ? 3 : 1)} ${x.unit} ${x.side} ${x.band}`).join(", ");
+    function statusText(m) {
+      if (m.status !== "estimated" || !m.note) return m.status;
+      const n = m.note;
+      return `estimated from ${n.usable} of ${n.detected} claps` +
+        (n.r_squared ? `, r² ${n.r_squared[0].toFixed(3)} to ${n.r_squared[1].toFixed(3)}` : "");
+    }
+    function renderCeiling(reply) {
+      const box = $("ceiling");
+      box.replaceChildren();
+      if (!reply.ok) { box.append(el("p", "The ceiling could not be worked out: " + lastLine(reply.error), "fail")); return; }
+      const { ceiling: c, metrics } = reply.result;
+      if (c.ceiling != null) {
+        box.append(el("p", `Ceiling: ${tierText(c.ceiling)}`, "ceiling-line pass"),
+          el("p", "The highest audio tier these takes could earn on the platform: the lowest of the three caps below.", "fine"));
+      } else if (c.failed) {
+        const would = el("p", "", "soft");
+        would.append("It would have been at most ", span(tierText(c.would_be), "greyed"),
+          ", but the platform assigns no tier when a gate fails. " +
+          `${STAGE_TITLES[c.failed.stage]}: ${c.failed.verdict}${c.failed.reason ? `, ${c.failed.reason}` : ""}.`);
+        box.append(el("p", `No ceiling: the ${STAGE_TITLES[c.failed.stage]} gate did not pass. Fix this and re-run.`, "ceiling-line fail"), would);
+      } else {
+        const so = el("p", "", "soft");
+        so.append("So far at most ", span(tierText(c.would_be), "greyed"), ".");
+        box.append(el("p", `Not complete: next, ${STAGE_TITLES[c.next]}.`, "ceiling-line soft"), so);
+      }
+
+      const { format: f, environment: e, device: d } = c.components, table = el("table");
+      table.append(row(["Cap", "At most", "Why"], "th"));
+      table.append(row(["Format", f.cap == null ? "-" : tierText(f.cap),
+        f.cap == null ? "from the level take" : f.failsafe ? "the format check did not run, so the platform's fail-safe applies"
+        : `${f.verdict}, from the level take` + (f.held ? "; held at 3 because the mic check is unverified"
+          : f.cap < 4 ? "; only a confirmed-native, lossless take reaches 4" : "")]));
+      const why = [];
+      if (e.noise) why.push(`quiet room ${e.noise}` + (NOISE_CAP[e.noise] ? ` caps at ${NOISE_CAP[e.noise]}` : ": no cap"));
+      if (e.noise && !c.rt60_runs) why.push("room reflection skipped in the lo-fi band");
+      else if (e.rt60) why.push(`room reflection ${e.rt60}` + (RT60_CAP[e.rt60] ? ` caps at ${RT60_CAP[e.rt60]}`
+        : e.rt60 === "error" ? ": not measured, no cap" : ": no cap"));
+      if (!e.known) why.push("not complete yet");
+      table.append(row(["Environment", e.noise ? tierText(e.cap) : "-", why.join("; ")]));
+      table.append(row(["Device", tierText(d.cap), d.is_mobile ? "the browser reports a mobile device: phone mics cap at 2"
+        : d.is_mobile === false ? "the browser reports a desktop: no cap" : "the browser does not report its device class: no cap"]));
+      box.append(table);
+
+      const mt = el("table");
+      mt.append(row(["Metric", "Value", "Band", "Margin", "Status"], "th"));
+      for (const m of metrics) mt.append(row([m.metric, metricValue(m), m.band || "", marginText(m), statusText(m)]));
+      box.append(el("p", "Every number, the band it landed in, and how far it sits from the selected profile's nearest " +
+        "thresholds. Measured, derived and estimated numbers come from the takes; reported and self-reported ones from the browser.", "fine"), mt);
+    }
+
     // ---- Save noise profile (design note section 7, D5) ----
     // The two files: the trimmed room tone the core wrote, and the core's record with
     // RecQC's additions under "recqc" (the mic readback, the profile, the saved names).
@@ -611,11 +950,13 @@
     // A headless Chrome with a fake mic (tests/headless_capture.py) reads the outcome
     // from the page title. Chrome's own fake mic plays a tone, which can fairly fail the
     // level gate, and then the quiet room cannot run. With ?selftest=full the fake mic
-    // plays a prepared file instead, speech for its first 10 s and room tone after, and
-    // the quiet room must run: the level take records from about 0.5 to 5.5 s into the
-    // file, the room-tone take from 12 to 18 s.
+    // plays a prepared file instead: speech for its first 10 s, room tone to 20 s, then a
+    // clap take, then room tone. The quiet room must run: the level take records from
+    // about 0.5 to 5.5 s into the file, the room-tone take from 12 to 18 s. Room
+    // reflection must run when the quiet room allows it: the clap take starts at 19.5 s
+    // and must stop on its own.
     const SELFTEST_FULL = params.get("selftest") === "full";
-    const SELFTEST_TIMES = { level: 5, noiseFrom: 12, noise: 6 };   // seconds
+    const SELFTEST_TIMES = { level: 5, noiseFrom: 12, noise: 6, clapFrom: 19.5 };   // seconds
     async function selftestTake(button, seconds) {
       if ($(button).disabled) throw new Error(`${button} is disabled. ${$("noise-status").textContent}`);
       $(button).click();
@@ -669,28 +1010,134 @@
           }
           noiseLine += `, saves ${wavName} (${fmt(n.np.duration, 1)} s of room tone) and ${jsonName}`;
         }
-        // A profile change re-scores the same take: the floor holds and the stamp moves.
+
+        // Room reflection, from the claps in the file, under Platform Band. The take must
+        // stop itself: six claps counted and then the tail, or the 30 s limit.
+        let clapLine = "room reflection not run: the lo-fi band";
+        if (SELFTEST_FULL && !(n.rt60_runs && n.noise_gate[0] === "PASS")) {
+          return done(`SELFTEST FAIL: room reflection cannot run after this quiet room (${n.noise.disposition}, gate ${n.noise_gate[0]})`);
+        }
+        if (n.rt60_runs && n.noise_gate[0] === "PASS") {
+          const clapWait = armedAt + SELFTEST_TIMES.clapFrom * 1000 - performance.now();
+          if (clapWait > 0) await sleep(clapWait);
+          if ($("clap-record").disabled) return done(`SELFTEST FAIL: clap-record is disabled. ${$("clap-status").textContent}`);
+          $("clap-record").click();
+          while (stage !== "recording") await sleep(20);
+          const clapStart = performance.now();
+          let cueShown = false, cueHidden = false;   // while recording: it must pulse, and pause after a clap
+          while (stage !== "armed" || !run.clap) {
+            if (stage === "recording") {
+              if ($("clap-cue").classList.contains("show")) cueShown = true;
+              else cueHidden = true;
+            }
+            await sleep(50);
+          }
+          if (!(cueShown && cueHidden)) {
+            return done(`SELFTEST FAIL: the clap cue ${cueShown ? "never paused for a clap" : "never showed"}`);
+          }
+          const took = (performance.now() - clapStart) / 1000;
+          const c = run.clap.reply.ok ? run.clap.reply.result : null;
+          if (!(c && c.rt60 && Array.isArray(c.rt60_gate) && c.clap_collection && c.profile.profile_name === "Platform Band")) {
+            return done("SELFTEST FAIL: room reflection " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          clapLine = `room reflection RT60 ${fmt(c.rt60.summary.rt60_gate_metric, 3)} s, ${c.rt60.disposition}, ` +
+                     `gate ${c.rt60_gate[0]}, ${c.clap_collection.detected} claps in a ${took.toFixed(1)} s take that stopped itself, ` +
+                     "the clap cue showing and pausing for claps";
+        }
+
+        // The ceiling card: every stage has run, so it names a ceiling or the gate that failed.
+        await ceilingUpdate;
+        const sum = lastSummary && lastSummary.ok ? lastSummary.result : null;
+        const cl = sum && sum.ceiling;
+        const snrRow = sum && sum.metrics.find((m) => m.metric === "SNR (A-weighted)");
+        if (!(cl && cl.next === null && (cl.failed ? cl.ceiling === null : cl.ceiling === cl.would_be)
+              && snrRow && snrRow.margins.length && $("ceiling").textContent.includes(cl.failed ? "No ceiling" : "Ceiling:"))) {
+          return done("SELFTEST FAIL: the ceiling card " + JSON.stringify(lastSummary).slice(0, 400));
+        }
+        const ceilingLine = cl.failed ? `no ceiling: ${cl.failed.stage} ${cl.failed.verdict}`
+          : `ceiling ${cl.ceiling} (${cl.name}) from format ${cl.components.format.cap}, environment ` +
+            `${cl.components.environment.cap}, device ${cl.components.device.cap}`;
+
+        // A room-reflection profile change re-scores the same claps.
+        let strictLine = "";
+        if (run.clap) {
+          const before = run.clap.reply;
+          $("rt60-profile").value = "strict";
+          $("rt60-profile").dispatchEvent(new Event("change"));
+          while (busy) await sleep(50);
+          await ceilingUpdate;
+          const s = run.clap.reply.ok ? run.clap.reply.result : null;
+          if (!(run.clap.reply !== before && s && s.profile.profile_name === "Strict" && s.rt60)) {
+            return done("SELFTEST FAIL: re-scoring the claps under Strict " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          strictLine = `; claps re-scored under Strict: ${s.rt60.disposition}`;
+
+          // More claps: under a yaml whose crest bar no clap can clear, the claps are
+          // unmeasured and the platform would ask for more. Add more claps records a
+          // second take (room tone here) that joins the first, and the pair is scored
+          // whole; back under Strict the same two takes are scored again.
+          await useProfile("rt60", { name: "unclear.yaml",
+            text: "profile_name: Selftest unclear claps\ngate:\n  min_valid_claps: 3\nadvanced:\n  crest_min_db: 60.0\n" }, "yours");
+          const u = run.clap.reply.ok ? run.clap.reply.result : null;
+          if (!(u && u.clap_collection && u.clap_collection.collect_more && $("clap-more") && !$("clap-more").disabled)) {
+            return done("SELFTEST FAIL: unclear claps did not offer more " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          $("clap-more").click();
+          while (stage !== "recording") await sleep(20);
+          await sleep(2000);
+          await stopTake();
+          await ceilingUpdate;
+          const j = run.clap.reply.ok ? run.clap.reply.result : null;
+          if (!(j && run.clap.takes.length === 2 && j.working_copy.takes_joined === 2 && j.clap_collection.collect_more)) {
+            return done("SELFTEST FAIL: more claps were not joined " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          $("rt60-profile").value = "strict";
+          $("rt60-profile").dispatchEvent(new Event("change"));
+          while (busy) await sleep(50);
+          await ceilingUpdate;
+          const back = run.clap.reply.ok ? run.clap.reply.result : null;
+          if (!(back && back.working_copy.takes_joined === 2 && back.profile.profile_name === "Strict")) {
+            return done("SELFTEST FAIL: the joined takes under Strict " + JSON.stringify(run.clap.reply).slice(0, 400));
+          }
+          strictLine += `; unclear claps asked for more, a second take joined (${j.clap_collection.detected} claps), ` +
+                        `the pair under Strict: ${back.rt60.disposition}`;
+        }
+        // A quiet-room profile change re-scores the same take: the floor holds and the
+        // stamp moves; the claps, which read its room tone, are scored again after it.
+        const clapBefore = run.clap && run.clap.reply;
         $("noise-profile").value = "default";
         $("noise-profile").dispatchEvent(new Event("change"));
         while (busy) await sleep(50);
+        await ceilingUpdate;
         const d = run.noise.reply.ok ? run.noise.reply.result : null;
         if (!(d && d.profile.profile_name === "Default" && d.noise.noise_floor_dba === n.noise.noise_floor_dba)) {
           return done("SELFTEST FAIL: re-scoring under Default " + JSON.stringify(run.noise.reply).slice(0, 400));
         }
+        if (run.clap && d.rt60_runs && run.clap.reply === clapBefore) {
+          return done("SELFTEST FAIL: a quiet-room profile change did not re-score the claps");
+        }
         // A user's yaml, as the file picker would hand it over: one without a profile_name
         // is refused and the profile in use stays; a named one is used and re-scores the take.
-        await useNoiseProfile({ name: "nameless.yaml", text: "snr:\n  warn_below: 40.0\n" }, "yours");
-        if ($("noise-profile-error").hidden || noiseChoice !== "default" || $("noise-profile").value !== "default") {
+        await useProfile("noise", { name: "nameless.yaml", text: "snr:\n  warn_below: 40.0\n" }, "yours");
+        if ($("noise-profile-error").hidden || profiles.noise.choice !== "default" || $("noise-profile").value !== "default") {
           return done("SELFTEST FAIL: a yaml without profile_name was not refused");
         }
-        await useNoiseProfile({ name: "mine.yaml", text: "profile_name: Selftest\nsnr:\n  warn_below: 40.0\n" }, "yours");
+        await useProfile("noise", { name: "mine.yaml", text: "profile_name: Selftest\nsnr:\n  warn_below: 40.0\n" }, "yours");
         const y = run.noise.reply.ok ? run.noise.reply.result : null;
         if (!(y && y.profile.source === "yours" && y.profile.profile_name === "Selftest"
               && $("noise-profile").value === "yours" && $("noise-profile-error").hidden)) {
           return done("SELFTEST FAIL: re-scoring under a user's yaml " + JSON.stringify(run.noise.reply).slice(0, 400));
         }
-        done(`SELFTEST PASS: ${levelLine}; ${noiseLine}; re-scored under Default: ${d.noise.disposition}; ` +
-             `a nameless yaml refused; under a user's yaml (WARN below 40): ${y.noise.disposition}`);
+        // A room-reflection yaml that is a noise profile is refused, and Strict stays.
+        if (run.clap) {
+          await useProfile("rt60", { name: "noise.yaml", text: "profile_name: Wrong core\nsnr:\n  warn_below: 40.0\n" }, "yours");
+          if ($("rt60-profile-error").hidden || profiles.rt60.choice !== "strict") {
+            return done("SELFTEST FAIL: a noise yaml was not refused as a room-reflection profile");
+          }
+        }
+        done(`SELFTEST PASS: ${levelLine}; ${noiseLine}; ${clapLine}; ${ceilingLine}${strictLine}; ` +
+             `re-scored under Default: ${d.noise.disposition}; a nameless yaml refused; ` +
+             `under a user's yaml (WARN below 40): ${y.noise.disposition}` + (run.clap ? "; a noise yaml refused for room reflection" : ""));
       } catch (e) { done("SELFTEST FAIL: " + String(e.message || e)); }
     }
     if (SELFTEST) selftest();

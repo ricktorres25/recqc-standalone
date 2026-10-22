@@ -17,6 +17,13 @@
 #                                        _env_ceiling and _device_ceiling, lifted verbatim
 #   platform_ingest.py                <- MAD/Talent Platform/app/cores.py, only
 #                                        _derive_working and the four imports it uses
+#   platform_clap.py                  <- MAD/Talent Platform/app/cores.py, only the
+#                                        clap-collection functions and constants
+#                                        (the two RT60 refusals, adaptive clap collection,
+#                                        joining clap takes) and the imports they use
+#   platform_stages.py                <- MAD/Talent Platform/app/drift_baseline.py, only
+#                                        rt60_in_band and its constant: whether the
+#                                        room-reflection stage runs for a noise band
 #
 # and, for the page, into app/ with its own manifest app/VENDORED.json:
 #
@@ -58,11 +65,14 @@ FILES=(
   "tiers.py|Talent Platform|app/tiers.py"
 )
 
-# One line per lifted file:  path under cores/ | source folder | path in that repo | function names
+# One line per lifted file:  path under cores/ | source folder | path in that repo |
+#                            function and constant names, in the order they must run
 #                            [| import lines from that file the functions use, ';'-separated]
 LIFTS=(
   "platform_ceiling.py|Talent Platform|app/audition_reviews.py|_env_ceiling,_device_ceiling"
   "platform_ingest.py|Talent Platform|app/cores.py|_derive_working|from pathlib import Path;import numpy as np;import soundfile as sf;import soxr"
+  "platform_clap.py|Talent Platform|app/cores.py|_RT60_MEASURED_TOKEN,RT60_REJECT_UNMEASURED,RT60_REJECT_TOO_LIVE,RT60_REJECT_COPY,rt60_reject_kind,CLAP_COLLECT_N,CLAP_COLLECT_CAP,clap_usable_count,clap_collection_state,concat_clap_takes|from pathlib import Path;import numpy as np;import soundfile as sf"
+  "platform_stages.py|Talent Platform|app/drift_baseline.py|_LOFI_NOISE_DISPOSITION,rt60_in_band"
 )
 
 # One line per lifted JavaScript file:  path under app/ | source folder | path in that repo |

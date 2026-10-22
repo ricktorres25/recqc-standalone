@@ -6,9 +6,14 @@
 //
 //   page -> worker   {id, op: "level", wav: ArrayBuffer, bypass: "verified" | "unverified"}
 //                    {id, op: "noise", wav: ArrayBuffer, speech_level_dba, profile}
-//                    {id, op: "profile", core: "noise", profile}
+//                    {id, op: "clap", wavs: [ArrayBuffer, ...], np: ArrayBuffer | null, profile}
+//                    {id, op: "summary", level, noise, clap, capture}
+//                    {id, op: "profile", core: "noise" | "rt60", profile}
 //                    where profile is {name} for a shipped profile, or {name, text} for
-//                    the user's yaml (its file name and contents)
+//                    the user's yaml (its file name and contents); wavs are the clap takes
+//                    in recording order, np the room tone the quiet room kept; summary
+//                    takes the three results so far (null for a stage not run) and the
+//                    mic readback
 //   worker -> page   {type: "log", message} while booting, then {type: "ready", version}
 //                    or {type: "boot-failed", error}; per request {id, ok: true, result}
 //                    or {id, ok: false, error}. A noise reply also carries np: the WAV
@@ -73,6 +78,31 @@ const OPS = {
       np = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     }
     return { result, np, transfer: np ? [np] : [] };
+  },
+
+  clap(pyodide, dir, { wavs, np, profile }) {
+    const takes = wavs.map((wav, i) => {
+      const take = `${dir}/recqc_clap_${i + 1}.wav`;
+      pyodide.FS.writeFile(take, new Uint8Array(wav));
+      return take;
+    });
+    let npPath = null;
+    if (np) {
+      npPath = `${dir}/recqc_np.wav`;
+      pyodide.FS.writeFile(npPath, new Uint8Array(np));
+    }
+    return { result: parse(pyodide.runPython(
+      `import json, recqc_runner\njson.dumps(recqc_runner.run_clap_take(${py(takes)}, ` +
+      `${npPath ? py(npPath) : "None"}, ${py(profileArg(pyodide, dir, profile))}))`)) };
+  },
+
+  // The results go in as a JSON file: true, false and null are not Python literals.
+  summary(pyodide, dir, { level, noise, clap, capture }) {
+    const input = `${dir}/summary.json`;
+    pyodide.FS.writeFile(input, new TextEncoder().encode(JSON.stringify({ level, noise, clap, capture })));
+    return { result: parse(pyodide.runPython(
+      `import json, recqc_runner\nwith open(${py(input)}) as f:\n    given = json.load(f)\n` +
+      `json.dumps(recqc_runner.summary(**given))`)) };
   },
 
   profile(pyodide, dir, { core, profile }) {

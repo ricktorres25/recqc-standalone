@@ -22,13 +22,18 @@ DB_SUFFIXES = ("_db", "_dbfs", "_dbtp", "_dba", "_lufs", "_broadband")
 SECONDS_KEYS = {"duration", "duration_sec", "timestamp_sec", "rt60_gate_metric"}
 SECONDS_PARENTS = {"rt60_per_band", "rt60_median_per_band"}
 LIMITS = {"dB": TOL_DB, "s": TOL_SECONDS, "r2": TOL_R_SQUARED}
+# The summary's metric rows and margins (M4) carry their unit beside the number: a
+# dict's "value" and "by" take the tolerance of the unit the same dict names.
+UNIT_KINDS = {"dB": "dB", "dBTP": "dB", "dBFS": "dB", "LUFS": "dB", "LU": "dB", "s": "s"}
+UNIT_VALUE_KEYS = {"value", "by"}
 
 MISSING = "<missing>"
 
 
 def kind_of(path):
-    """The tolerance class of a numeric field, from its key and its parents' keys."""
-    key = str(path[-1])
+    """The tolerance class of a numeric field, from its key and its parents' keys. An item
+    of a list of numbers takes its list's key (a [lowest, highest] r² pair)."""
+    key = str(path[-2] if isinstance(path[-1], int) and len(path) > 1 else path[-1])
     if key == "r_squared":
         return "r2"
     if key.endswith(DB_SUFFIXES):
@@ -79,10 +84,12 @@ class Comparison:
                 return
         self.differences.append((path, a, b, why))
 
-    def walk(self, a, b, path=()):
+    def walk(self, a, b, path=(), unit=None):
         if path and str(path[-1]) in IGNORED_KEYS:
             return
         if isinstance(a, dict) and isinstance(b, dict):
+            # A unit both sides name applies to this dict's own "value" and "by" only.
+            own = a.get("unit") if a.get("unit") == b.get("unit") and a.get("unit") in UNIT_KINDS else None
             for k in sorted(set(a) | set(b), key=str):
                 if k in IGNORED_KEYS:
                     continue
@@ -91,7 +98,7 @@ class Comparison:
                 elif k not in a:
                     self.differ(path + (k,), MISSING, b[k], "only in B")
                 else:
-                    self.walk(a[k], b[k], path + (k,))
+                    self.walk(a[k], b[k], path + (k,), own)
             return
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
@@ -107,7 +114,7 @@ class Comparison:
                 self.differ(path, a, b, "file name")
             return
         if is_number(a) and is_number(b) and (isinstance(a, float) or isinstance(b, float)):
-            kind = kind_of(path)
+            kind = UNIT_KINDS[unit] if unit and str(path[-1]) in UNIT_VALUE_KEYS else kind_of(path)
             delta = abs(a - b) if not (math.isnan(a) or math.isnan(b)) else 0.0
             label = self.label(path)
             if delta > self.largest.get(label, (kind, -1.0))[1]:

@@ -15,8 +15,9 @@
 //
 // Usage:  node tests/parity/run_pyodide.mjs <work dir> <out.json> <set> [<set> ...]
 //         where a set is <name>:<profile> (or just <profile>, named after it), scored
-//         by run_corpus, or page:<name>:<noise profile>, scored by run_page_corpus (the
-//         page's flow), and <work dir>/<name>/ holds one folder of takes per corpus folder.
+//         by run_corpus, or page:<name>:<noise profile>:<RT60 profile>, scored by
+//         run_page_corpus (the page's flow), and <work dir>/<name>/ holds one folder of
+//         takes per corpus folder.
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,8 +65,10 @@ result = {
 }
 for spec in ${JSON.stringify(sets)}:
     if spec.startswith("page:"):
-        name, _, profile = spec[len("page:"):].partition(":")
-        result["pages"][name] = recqc_runner.run_page_corpus(f"/work/{name}", profile)
+        # page:<set>:<quiet-room profile>:<room-reflection profile>
+        name, _, profiles = spec[len("page:"):].partition(":")
+        profile, _, rt60_profile = profiles.rpartition(":")
+        result["pages"][name] = recqc_runner.run_page_corpus(f"/work/{name}", profile, rt60_profile)
         print(f"[pyodide] {name}: {len(result['pages'][name])} folders, page flow", file=sys.stderr)
         continue
     name, _, profile = spec.partition(":")

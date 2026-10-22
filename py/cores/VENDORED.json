@@ -1,6 +1,6 @@
 {
   "written_by": "py/vendor_cores.sh",
-  "note": "Written by py/vendor_cores.sh. Do not edit by hand. RecQC refuses to start if a file below differs from its sha256, and tests/test_vendored.py checks each file against its source repo at the recorded commit. An entry with 'symbols' holds only those functions, lifted verbatim from source_path, plus the source's own import lines listed under 'imports', if any.",
+  "note": "Written by py/vendor_cores.sh. Do not edit by hand. RecQC refuses to start if a file below differs from its sha256, and tests/test_vendored.py checks each file against its source repo at the recorded commit. An entry with 'symbols' holds only those functions and constants, lifted verbatim from source_path, plus the source's own import lines listed under 'imports', if any.",
   "files": [
     {
       "path": "level_check_phrase_core.py",
@@ -110,6 +110,43 @@
         "import soxr"
       ],
       "sha256": "ba7d77a666ca512362384c1863ac23d35518cb8016b646545f82d5ded67c639d"
+    },
+    {
+      "path": "platform_clap.py",
+      "source_folder": "Talent Platform",
+      "source_path": "app/cores.py",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "symbols": [
+        "_RT60_MEASURED_TOKEN",
+        "RT60_REJECT_UNMEASURED",
+        "RT60_REJECT_TOO_LIVE",
+        "RT60_REJECT_COPY",
+        "rt60_reject_kind",
+        "CLAP_COLLECT_N",
+        "CLAP_COLLECT_CAP",
+        "clap_usable_count",
+        "clap_collection_state",
+        "concat_clap_takes"
+      ],
+      "imports": [
+        "from pathlib import Path",
+        "import numpy as np",
+        "import soundfile as sf"
+      ],
+      "sha256": "c819d22b8ce81c061f965c4df666d0c0d5824ab053a4c67f3d3de37d4b8f34d5"
+    },
+    {
+      "path": "platform_stages.py",
+      "source_folder": "Talent Platform",
+      "source_path": "app/drift_baseline.py",
+      "repo": "mad-collection-platform",
+      "commit": "5b8be781c59893811ba8efe11124307fc68ec6ff",
+      "symbols": [
+        "_LOFI_NOISE_DISPOSITION",
+        "rt60_in_band"
+      ],
+      "sha256": "20ad6d1aa56cce66fdd891e6eb837662c32a61745fc80ef1eb421743cec02246"
     }
   ]
 }

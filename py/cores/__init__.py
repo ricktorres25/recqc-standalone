@@ -10,6 +10,10 @@ cores - vendored copies of the MAD platform's Rec QC code, run by RecQC unmodifi
     provenance.py, tiers.py           <- MAD/Talent Platform/app
     platform_ceiling.py               <- two functions lifted from
                                          MAD/Talent Platform/app/audition_reviews.py
+    platform_ingest.py                <- _derive_working, lifted from app/cores.py
+    platform_clap.py                  <- the clap-collection functions and constants,
+                                         lifted from app/cores.py
+    platform_stages.py                <- rt60_in_band, lifted from app/drift_baseline.py
 
 Those files are copied in by py/vendor_cores.sh and never edited here. A change a
 core needs is made in that core's own repo, committed there, then vendored again.

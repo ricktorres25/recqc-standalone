@@ -13,7 +13,34 @@ import { WORKLET_CODE, encodeWav24, getMicConstraints, checkMicProcessing,
 // Stop, and each stage's auto-stop (its STAGE_INFO), counted from the start of the
 // pre-roll.
 const PRE_ROLL_MS = 200, POST_ROLL_MS = 200;
-export const MAX_SECONDS = { phrase: 20, noise: 12 };
+export const MAX_SECONDS = { phrase: 20, noise: 12, clap: 30 };
+
+// The platform's clap auto-stop (countClapIfImpulse, clapAutoStopDue and their
+// constants): a meter window that peaks at or above the RT60 core's clap-detection
+// floor counts as a clap, at most once per the core's minimum clap spacing, so the page
+// counts the events the core will detect; the take stops once the tail after the
+// target clap has run, so the last decay is never cut off. It conditions on the count
+// of claps only, never on the measurement: a short take is completed by asking for
+// more claps, not by stopping early.
+export const CLAP_COUNT_FLOOR_DB = -20, CLAP_COUNT_REFRACTORY_SEC = 1.5, CLAP_TARGET = 6, CLAP_TAIL_SEC = 3;
+// The platform meter's clap range, shaded while claps record: its floor is that
+// detection floor, its top the meter's -3 dBFS warn line.
+export const CLAP_RANGE_DB = [-20, -3];
+
+export class ClapCounter {
+  constructor() { this.reset(false); }
+  reset(on) { this.counting = on; this.count = 0; this.lastAt = 0; this.targetAt = 0; }
+  // One meter message: its window's peak, and when it arrived, in seconds.
+  onPeak(peakDb, now) {
+    if (!this.counting || !Number.isFinite(peakDb)) return;
+    if (peakDb >= CLAP_COUNT_FLOOR_DB && now - this.lastAt >= CLAP_COUNT_REFRACTORY_SEC) {
+      this.lastAt = now;
+      this.count++;
+      if (this.count >= CLAP_TARGET && !this.targetAt) this.targetAt = now;
+    }
+  }
+  stopDue(now) { return this.targetAt > 0 && now - this.targetAt >= CLAP_TAIL_SEC; }
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

@@ -15,7 +15,8 @@ py/vendor_cores.sh also runs this file as a script:
     python3 _vendor_check.py check <cores dir>     exit 0 if every file matches, else 1
     python3 _vendor_check.py lift <out file> <source folder> <source path> <names> [<imports>]
                                                    source on stdin -> the named
-                                                   top-level functions, verbatim
+                                                   top-level functions and constants,
+                                                   verbatim
     python3 _vendor_check.py lift-js <out file> <source folder> <source path> <names> <shared>
                                                    source on stdin -> the named
                                                    JavaScript declarations, verbatim
@@ -32,15 +33,15 @@ from pathlib import Path
 MANIFEST_NAME = "VENDORED.json"
 
 # Manifest fields, in the order vendor_cores.sh passes them on each stdin row.
-# Lift rows carry a sixth field, the lifted function names (comma-separated), and may
-# carry a seventh, the import lines those functions need (semicolon-separated).
+# Lift rows carry a sixth field, the lifted function and constant names (comma-separated),
+# and may carry a seventh, the import lines those functions need (semicolon-separated).
 # JavaScript lift rows carry the declaration names and the shared page variables.
 ROW_FIELDS = ("path", "source_folder", "source_path", "repo", "commit")
 
 MANIFEST_NOTE = ("Written by py/vendor_cores.sh. Do not edit by hand. RecQC refuses to start "
                  "if a file below differs from its sha256, and tests/test_vendored.py checks "
                  "each file against its source repo at the recorded commit. An entry with "
-                 "'symbols' holds only those functions, lifted verbatim from source_path, "
+                 "'symbols' holds only those functions and constants, lifted verbatim from source_path, "
                  "plus the source's own import lines listed under 'imports', if any.")
 
 JS_MANIFEST_NOTE = ("Written by py/vendor_cores.sh. Do not edit by hand. Each file below holds "
@@ -144,25 +145,41 @@ def require_vendored(cores_dir):
               "Restore them with git, or run py/vendor_cores.sh again.")
 
 
+def _constant_name(node):
+    """The name a top-level `NAME = ...` or `NAME: type = ...` statement assigns, else None."""
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        return node.targets[0].id
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+        return node.target.id
+    return None
+
+
 def lift_functions(source, names):
-    """Return the named top-level functions of `source`, verbatim, in the order named.
+    """Return the named top-level functions and constants of `source`, verbatim, in the
+    order named.
 
     Each function runs from its first line (its first decorator, if any) to its last
-    line, so the text is byte-identical to the source. Raises ValueError if a name is
+    line, and a constant (a top-level `NAME = ...`) over the lines of its statement, so
+    the text is byte-identical to the source. A constant's trailing comment on its last
+    line comes with it; comment lines above it do not. Raises ValueError if a name is
     missing or defined twice at top level.
     """
     tree = ast.parse(source)
     lines = source.splitlines(keepends=True)
     found = {}
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
-            if node.name in found:
-                raise ValueError(f"{node.name} is defined twice at top level")
-            start = min([node.lineno] + [d.lineno for d in node.decorator_list])
-            found[node.name] = "".join(lines[start - 1:node.end_lineno])
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            name, start = node.name, min([node.lineno] + [d.lineno for d in node.decorator_list])
+        else:
+            name, start = _constant_name(node), node.lineno
+        if name not in names:
+            continue
+        if name in found:
+            raise ValueError(f"{name} is defined twice at top level")
+        found[name] = "".join(lines[start - 1:node.end_lineno])
     missing = [n for n in names if n not in found]
     if missing:
-        raise ValueError("not found as top-level functions: " + ", ".join(missing))
+        raise ValueError("not found as top-level functions or constants: " + ", ".join(missing))
     return [found[n] for n in names]
 
 
@@ -184,9 +201,15 @@ def lift_imports(source, wanted):
 
 def render_lift(name, source_folder, source_path, source, names, imports=()):
     """The full text of a lifted file: the header, the import lines if any, then each
-    function, two blank lines apart."""
+    function or constant, two blank lines apart."""
     template = LIFT_HEADER_IMPORTS if imports else LIFT_HEADER
     header = template.format(name=name, source_folder=source_folder, source_path=source_path)
+    # A lift that holds constants says so; a functions-only lift keeps its header as it was.
+    constants = [n for n in names if not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == n
+        for node in ast.parse(source).body)]
+    if constants:
+        header = header.replace("# The functions below are", "# The functions and constants below are", 1)
     if imports:
         header += "\n" + "".join(line + "\n" for line in lift_imports(source, imports))
     bodies = [f if f.endswith("\n") else f + "\n" for f in lift_functions(source, names)]

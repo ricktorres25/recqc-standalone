@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# test_profiles.py - the scoring profiles and the quiet-room take (M3), without a corpus.
+# test_profiles.py - the scoring profiles, the quiet-room take (M3) and the
+# room-reflection take (M4), without a corpus.
 #
 #   R1  every shipped profile resolves and is stamped with its name and config_sha256;
 #       the noise core's Default and Platform Band differ only where the yaml says
@@ -11,6 +12,11 @@
 #       stamped with the profile's hash as the core's record is; a loud room is rejected
 #       and keeps none; a 44.1 kHz take is scored on a derived working copy; a take below
 #       44.1 kHz is refused with the platform's message; a bad profile stops the scan
+#   R6  run_clap_take on synthetic claps (decaying noise bursts of a set RT60): each
+#       Platform Band band lands where its RT60 says; a too-live room is the platform's
+#       "too live" refusal and asks for no more claps; too few claps is "unmeasured" and
+#       asks for more, and the same claps with a second take joined pass; Strict moves
+#       the same take's band; a take below 44.1 kHz and a noise yaml are refused
 #
 # Every check runs its near miss (builds:grader-negative-control) where one applies: a
 # case that differs from a passing one only in the property being checked.
@@ -55,6 +61,21 @@ def noise_take(folder, name, rate, rms_dbfs, seconds=5.0):
     """A steady white-noise take at a broadband RMS level, written as 24-bit mono."""
     rng = np.random.default_rng(7)
     x = rng.standard_normal(int(rate * seconds)) * 10 ** (rms_dbfs / 20)
+    path = Path(folder) / name
+    sf.write(str(path), x, rate, subtype="PCM_24")
+    return path
+
+
+def clap_take(folder, name, rt60, claps=6, rate=48000, seed=3):
+    """Claps 2 s apart over a -90 dBFS floor: each a white-noise burst peaking at -8 dBFS
+    that decays 60 dB in `rt60` seconds, written as 24-bit mono."""
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal(int(rate * (1.5 + 2.0 * claps))) * 10 ** (-90 / 20)
+    t = np.arange(int(rate * min(2.0, max(1.5, rt60 * 2.5)))) / rate
+    for k in range(claps):
+        burst = rng.standard_normal(len(t)) * np.exp(-6.91 * t / rt60)
+        start = int(rate * (0.5 + 2.0 * k))
+        x[start:start + len(t)] += burst * 10 ** (-8 / 20) / np.max(np.abs(burst))
     path = Path(folder) / name
     sf.write(str(path), x, rate, subtype="PCM_24")
     return path
@@ -147,6 +168,45 @@ def main():
         bad = runner.run_noise_take(take, -30.0, str(tmp / "nameless.yaml"))
         result("error" in bad["profile"] and "noise" not in bad,
                f"R5 a refused profile stops the scan: {bad['profile'].get('error')}")
+
+        # R6: the room tone the quiet room kept above is the claps' noise profile.
+        np_wav = out["np"]["file"]
+        expected = {0.2: ("pass", "PASS"), 0.4: ("production", "PASS"), 0.7: ("borderline", "PASS"),
+                    1.2: ("reject", "FAIL")}
+        for rt60, (band, verdict) in expected.items():
+            c = runner.run_clap_take([clap_take(tmp, f"room{rt60}_clap.wav", rt60)], np_wav)
+            metric = c["rt60"]["summary"]["rt60_gate_metric"]
+            result(c["rt60"]["disposition"] == band and c["rt60_gate"][0] == verdict
+                   and abs(metric - rt60) < 0.1 * rt60 and c["rt60"]["noise_profile_used"] == Path(np_wav).name
+                   and not c["clap_collection"]["collect_more"] and c["profile"]["profile_name"] == "Platform Band",
+                   f"R6 a room of RT60 {rt60} s measures {metric:.3f} s: {band}, gate {verdict}")
+        live = runner.run_clap_take([tmp / "room1.2_clap.wav"], np_wav)
+        result(live.get("refusal", {}).get("kind") == "too_live" and "exceeds_limit" in live["rt60_gate"][1],
+               "R6 too live: the platform's measured refusal, and no more claps are asked for")
+        few = runner.run_clap_take([clap_take(tmp, "few_clap.wav", 0.2, claps=2)], np_wav)
+        result(few["rt60_gate"][0] == "FAIL" and few.get("refusal", {}).get("kind") == "unmeasured"
+               and few["clap_collection"]["collect_more"] and few["clap_collection"]["detected"] == 2,
+               f"R6 two claps: {few['rt60_gate'][1]}, unmeasured, and more claps are asked for")
+        joined = runner.run_clap_take([tmp / "few_clap.wav", clap_take(tmp, "more_clap.wav", 0.2, claps=2, seed=5)], np_wav)
+        result(joined["rt60_gate"][0] == "PASS" and joined["working_copy"]["takes_joined"] == 2
+               and joined["clap_collection"]["detected"] == 4 and not joined["clap_collection"]["collect_more"],
+               "R6 the same two claps with a second take of two joined: 4 claps, analysed whole, PASS")
+        strict = runner.run_clap_take([tmp / "room0.4_clap.wav"], np_wav, "strict")
+        result(strict["rt60"]["disposition"] == "borderline" and strict["profile"]["profile_name"] == "Strict",
+               "R6 near miss: the production room under Strict is borderline (Strict has no production band)")
+        low = runner.run_clap_take([clap_take(tmp, "low_clap.wav", 0.2, rate=32000)], np_wav)
+        result(low.get("refused") == "Sample rate 32000 Hz is below the 44.1 kHz minimum." and "rt60" not in low,
+               "R6 a 32 kHz clap take is refused with the platform's door-gate message")
+        wrong = runner.run_clap_take([tmp / "room0.2_clap.wav"], np_wav, str(FIXTURE))
+        result("error" in wrong["profile"] and "rt60" not in wrong,
+               f"R6 a noise yaml stops the clap scan: {wrong['profile'].get('error')}")
+        # Without the room tone the core falls back to each decay's tail, which on these
+        # claps cannot place the noise: the quiet room's hand-off is what measures them.
+        bare = runner.run_clap_take([tmp / "room0.2_clap.wav"], None)
+        result(bare["rt60"]["noise_profile_used"] is None and bare["rt60_gate"] == ["ERROR", "rt60_1khz_unavailable"]
+               and bare["refusal"]["kind"] == "unmeasured" and bare["clap_collection"]["collect_more"],
+               "R6 the same claps with no room tone: the tail fallback cannot measure them (unmeasured, more asked for); "
+               "with it they pass, above")
 
     print()
     print("RESULT: FAIL" if "FAIL" in statuses else "RESULT: PASS")

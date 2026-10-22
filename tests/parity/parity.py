@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # parity.py - the parity test (DESIGN_NOTE.md section 3; M1 gate 1, 2026-10-21; M2 adds
-# the 44.1 kHz set; M3 adds the page's flow and P3).
+# the 44.1 kHz set; M3 adds the page's flow and P3; M4 adds room reflection and the
+# summary to the page's flow).
 #
 # Do the vendored cores score the Testing corpus the same in Pyodide as in CPython,
 # and does CPython still reproduce the corpus's stored records?
@@ -12,18 +13,23 @@
 #       both sides start from the same files and each derives its 48 kHz working copies
 #       with its own soxr (0.5.0.post1 in Pyodide, 1.1.0 live). The largest sample
 #       difference between the two sides' working copies is reported too.
-#       Four more sets run the page's flow (run_page_corpus: the level take, then the
-#       room-tone take only if the level gate passed) under each quiet-room profile the
-#       page offers: Platform Band, the noise core's Default, a user's yaml (the fixture
-#       in this folder), and Platform Band at 44.1 kHz.
+#       Five more sets run the page's flow (run_page_corpus: the level take, the
+#       room-tone take only if the level gate passed, the clap take only if the
+#       quiet-room gate passed outside the lo-fi band, then the ceiling and margins)
+#       under each quiet-room profile the page offers: Platform Band, the noise core's
+#       Default (with the RT60 core's built-in, Strict), a user's yaml (the fixture in
+#       this folder), and Platform Band at 44.1 kHz; and once with Forgiving for room
+#       reflection.
 #   P2  CPython against the stored records in each folder's screening_result.json,
 #       defaults only (the June records used them), same tolerances. One difference is
 #       expected and listed, not counted: the live RT60 core is newer than the one that
 #       wrote the records and adds "dry_room": null.
 #   P3  In CPython, the page's flow against run_folder on the same takes and profile:
-#       the level and quiet-room records must agree, and the page must stop exactly where
-#       the level gate fails. The identity fields differ by design and are listed: the
-#       page has no talent or language to pass.
+#       the level, quiet-room and room-reflection records must agree; the page must stop
+#       exactly where the level gate or the quiet-room gate fails, and skip room
+#       reflection exactly where run_folder's quiet room reads WARN (the lo-fi band). The
+#       identity fields differ by design and are listed: the page has no talent or
+#       language to pass.
 #   N   Near misses (builds:grader-negative-control): the comparison must catch every
 #       folder's record paired with the wrong folder's, a value nudged just past each
 #       tolerance and a changed verdict, and must pass a value nudged just inside each
@@ -71,13 +77,16 @@ PROFILES = ("default", "platform_band")
 SETS = {"default": ("default", 48000),
         "platform_band": ("platform_band", 48000),
         "platform_band_44k": ("platform_band", 44100)}
-# P1's page sets (M3): name -> (quiet-room profile, capture rate), scored the page's
-# way. FIXTURE stands for the user's yaml; each side reads its own copy of it.
+# P1's page sets (M3, M4): name -> (quiet-room profile, room-reflection profile, capture
+# rate), scored the page's way. FIXTURE stands for the user's yaml; each side reads its
+# own copy of it. page_default pairs the noise core's built-in with the RT60 core's
+# (Strict), as run_folder's default set does.
 FIXTURE = "fixture_noise_profile.yaml"
-PAGE_SETS = {"page_platform_band": ("platform_band", 48000),
-             "page_default": ("default", 48000),
-             "page_yours": (FIXTURE, 48000),
-             "page_platform_band_44k": ("platform_band", 44100)}
+PAGE_SETS = {"page_platform_band": ("platform_band", "platform_band", 48000),
+             "page_default": ("default", "strict", 48000),
+             "page_yours": (FIXTURE, "platform_band", 48000),
+             "page_platform_band_44k": ("platform_band", "platform_band", 44100),
+             "page_forgiving": ("platform_band", "forgiving", 48000)}
 # P3: each page set against the run_folder set scored the same way.
 PAGE_PAIRS = {"page_platform_band": "platform_band", "page_default": "default",
               "page_platform_band_44k": "platform_band_44k"}
@@ -167,6 +176,44 @@ def near_misses(a_rows, b_rows):
     comp = compare.Comparison()
     comp.walk(nudged, record, (record["folder"],))
     check(bool(comp.differences), "a changed gate verdict caught")
+    return ok
+
+
+def summary_near_misses(rows):
+    """The negative controls for the page's summary (M4): a metric row's value and a
+    margin take the tolerance of the unit beside them, and a changed ceiling is caught."""
+    ok = True
+
+    def check(caught, text):
+        nonlocal ok
+        ok &= caught
+        print(f"{'PASS' if caught else 'FAIL':8s} N {text}")
+
+    def metric(record, name):
+        return next((i for i, m in enumerate(record["summary"]["metrics"]) if m["metric"] == name), None)
+
+    record = next((r for r in rows if metric(r, "RT60 at 1 kHz (T20)") is not None
+                   and isinstance(r["summary"]["metrics"][metric(r, "RT60 at 1 kHz (T20)")]["value"], float)), None)
+    if record is None:
+        check(False, "summary edges: no page record has an RT60 row, so none was tried")
+        return ok
+    snr, rt = metric(record, "SNR (A-weighted)"), metric(record, "RT60 at 1 kHz (T20)")
+    edges = [(("summary", "metrics", snr, "value"), compare.TOL_DB, "summary SNR value (dB)"),
+             (("summary", "metrics", snr, "margins", 0, "by"), compare.TOL_DB, "summary SNR margin (dB)"),
+             (("summary", "metrics", rt, "value"), compare.TOL_SECONDS, "summary RT60 value (s)")]
+    for path, tol, name in edges:
+        for factor, must_differ in ((1.1, True), (0.9, False)):
+            nudged = copy.deepcopy(record)
+            get_path(nudged, path[:-1])[path[-1]] += tol * factor
+            comp = compare.Comparison()
+            comp.walk(nudged, record, (record["folder"],))
+            check(bool(comp.differences) == must_differ,
+                  f"{name} nudged by {factor:g} x its tolerance {'caught' if must_differ else 'let through'}")
+    nudged = copy.deepcopy(record)
+    nudged["summary"]["ceiling"]["ceiling"] = 1 + (nudged["summary"]["ceiling"]["ceiling"] or 0) % 4
+    comp = compare.Comparison()
+    comp.walk(nudged, record, (record["folder"],))
+    check(bool(comp.differences), "a changed ceiling caught")
     return ok
 
 
@@ -268,7 +315,8 @@ def main():
     folders = [d for d in sorted(corpus.iterdir())
                if d.is_dir() and any(d.glob("*" + recqc_runner.TAKE_SUFFIXES["phrase"]))]
     all_sets = {**SETS, **PAGE_SETS}
-    for name, (profile, rate) in all_sets.items():
+    for name, spec in all_sets.items():
+        rate = spec[-1]
         for folder in folders:
             for side in ("cpython", "pyodide"):
                 (work / side / name / folder.name).mkdir(parents=True)
@@ -295,9 +343,10 @@ def main():
             rows = recqc_runner.run_corpus(work / "cpython" / name, profile)
             cpython_seconds[name] = time.perf_counter() - t0
             cpython[name] = json.loads(json.dumps(rows))
-        for name, (profile, _) in PAGE_SETS.items():
+        for name, (profile, rt60_profile, _) in PAGE_SETS.items():
             t0 = time.perf_counter()
-            rows = recqc_runner.run_page_corpus(work / "cpython" / name, page_profile(profile, "cpython"))
+            rows = recqc_runner.run_page_corpus(work / "cpython" / name, page_profile(profile, "cpython"),
+                                                rt60_profile)
             cpython_seconds[name] = time.perf_counter() - t0
             cpython_pages[name] = json.loads(json.dumps(rows))
 
@@ -305,7 +354,7 @@ def main():
         out_json = work / "pyodide.json"
         t0 = time.perf_counter()
         specs = [f"{n}:{p}" for n, (p, _) in SETS.items()] + \
-                [f"page:{n}:{page_profile(p, 'pyodide')}" for n, (p, _) in PAGE_SETS.items()]
+                [f"page:{n}:{page_profile(p, 'pyodide')}:{r}" for n, (p, r, _) in PAGE_SETS.items()]
         proc = subprocess.run([node, str(HERE / "run_pyodide.mjs"), str(work / "pyodide"),
                                str(out_json), *specs],
                               capture_output=True, text=True, timeout=3600)
@@ -339,13 +388,14 @@ def main():
                 comp.walk(a_rows.get(name, compare.MISSING), b_rows.get(name, compare.MISSING),
                           (name,))
             ran = sum("skipped" not in r["noise"] for r in cpython_pages[set_name])
+            claps = sum("skipped" not in r["clap"] for r in cpython_pages[set_name])
             passed &= show(comp, f"P1 {set_name}: Pyodide (A) vs CPython (B), "
-                                 f"quiet room on {ran} of {len(b_rows)} folders")
+                                 f"quiet room on {ran}, room reflection on {claps} of {len(b_rows)} folders")
             results[f"P1 {set_name}"] = comp
 
         # The derived working copies themselves, for each resampled set.
-        for set_name, (_, rate) in all_sets.items():
-            if rate == 48000:
+        for set_name, spec in all_sets.items():
+            if spec[-1] == 48000:
                 continue
             worst, compared, problems = working_copy_difference(work, set_name)
             ok = not problems and compared > 0
@@ -374,7 +424,7 @@ def main():
         for page_set, folder_set in PAGE_PAIRS.items():
             comp = compare.Comparison(expected=[identity_only])
             ref = {r["folder"]: r for r in cpython[folder_set]}
-            ran = 0
+            ran = claps = 0
             for page in cpython_pages[page_set]:
                 folder, theirs = page["folder"], ref[page["folder"]]
                 comp.walk(page["level"].get("level"), theirs.get("level"), (folder, "level"))
@@ -387,12 +437,24 @@ def main():
                 ran += 1
                 comp.walk(page["noise"].get("noise"), theirs.get("noise"), (folder, "noise"))
                 comp.walk(page["noise"].get("noise_gate"), theirs.get("noise_gate"), (folder, "noise_gate"))
+                # The page stops at a failed quiet-room gate and skips room reflection in
+                # the lo-fi band (noise WARN); run_folder scores the claps regardless.
+                expect = ("skipped: gate" if theirs["noise_gate"][0] != "PASS"
+                          else "skipped: lo-fi band" if theirs["noise"]["disposition"] == "WARN" else "ran")
+                got = ("ran" if "skipped" not in page["clap"]
+                       else "skipped: gate" if "gate" in page["clap"]["skipped"] else "skipped: lo-fi band")
+                comp.walk(got, expect, (folder, "room reflection"))
+                if got == expect == "ran":
+                    claps += 1
+                    comp.walk(page["clap"].get("rt60"), theirs.get("rt60"), (folder, "rt60"))
+                    comp.walk(page["clap"].get("rt60_gate"), theirs.get("rt60_gate"), (folder, "rt60_gate"))
             passed &= show(comp, f"P3 {page_set}: the page's flow (A) vs run_folder {folder_set} (B), "
-                                 f"quiet room on {ran} folders")
+                                 f"quiet room on {ran}, room reflection on {claps} folders")
             results[f"P3 {page_set}"] = comp
 
         # N: the comparison has to be able to fail, or its passes above prove nothing.
         passed &= near_misses(pyo["profiles"]["default"], cpython["default"])
+        passed &= summary_near_misses(cpython_pages["page_platform_band"])
 
         # 9. pyodide/ must be unchanged (Node would have downloaded a missing wheel into it).
         listing_after = sorted(p.name for p in (REPO / "pyodide").iterdir())

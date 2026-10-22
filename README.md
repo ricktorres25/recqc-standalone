@@ -2,12 +2,14 @@
 
 A recording-chain and room check that runs in your browser, on your machine. It is the audio side of the MAD collection platform's Rec QC: a level check, a quiet-room measurement and a clap-based room-reflection measurement, scored under the platform's published policy. It prints the audio tier ceiling a take could earn, with every measurement, threshold and margin shown. Nothing is uploaded.
 
-**Status:** in development. The level check and the quiet room run: capture, the mic-processing check, the format verdict, the level, and the room's noise floor and signal-to-noise ratio under a selectable profile, scored in the browser by the platform's cores, with the room tone saveable as a noise profile. The room-reflection check and the tier ceiling come next. [DESIGN_NOTE.md](DESIGN_NOTE.md) is the approved design.
+**Status:** in development. The whole check runs: capture, the mic-processing check, the format verdict, the level, the room's noise floor and signal-to-noise ratio, the room's reverberation time from claps, and the tier ceiling with every margin, each room check under a selectable profile, scored in the browser by the platform's cores, with the room tone saveable as a noise profile. Installing it as an app for offline use comes next. [DESIGN_NOTE.md](DESIGN_NOTE.md) is the approved design.
 
 ## What it will do
 
 - Run the platform's exact Python measurement cores in the browser (Pyodide), vendored with their source commit and hash.
 - Check that the browser's microphone processing (gain control, noise suppression, echo cancellation) is really off before measuring.
+- Measure the room's reverberation time (RT60) from claps, collecting claps the way the platform does.
+- Print the audio tier ceiling, the lowest of its format, environment and device caps, with each measurement's distance from the nearest threshold.
 - Score against a selectable policy profile (Platform Band by default) and stamp every result with the profile's hash.
 - Save the measured noise profile to disk as a room-tone WAV plus a JSON record.
 - Run hosted (GitHub Pages) or installed (PWA, works offline); forks and intranets serve the folder with any static server.
@@ -26,8 +28,10 @@ and open <http://localhost:8000> in Chrome. A page opened straight from the file
 4. Read the result: the mic-processing check, the format verdict and the level check, each with its numbers and reasons.
 5. Once the level check passes, press Record room tone and stay silent and still for at least five seconds (it stops on its own at 12 s). Leave your gain where it was: the signal-to-noise ratio is the level take's speech level over this room's noise floor.
 6. On a quiet room that passes, Save noise profile writes the room tone, trimmed to its longest unbroken quiet stretch, as a 48 kHz, 24-bit WAV, with the measurement record as JSON. Chrome asks for a folder; other browsers download both files.
+7. Once the quiet room passes, press Record claps, take three steps back from the mic and clap with cupped hands each time CLAP NOW shows; it pauses while the meter's peak-hold line holds your last clap. The take stops on its own, three seconds after the sixth clap it counts (or at 30 s). If the claps did not give a clear enough read, Add more claps adds a take to them and the whole set is scored again, as on the platform. In a room whose quiet room reads WARN this check does not run: the platform skips it there, because the noise alone caps the tier at 2.
+8. Read the Tier ceiling card: the ceiling, its three caps and why, and one row per measurement with the band it landed in and how far it sits from the nearest threshold. If a check failed its gate there is no ceiling, as on the platform; the card says which check, and what the ceiling would have been.
 
-The Scoring profile card picks the policy the quiet room is scored under: Platform Band (what the live platform runs), the noise core's Default, or your own yaml, which must set `profile_name` and an `snr` section and is read on your machine, never uploaded. Changing it re-scores the room-tone take you already have.
+The Scoring profile card picks the policy each room check is scored under. Quiet room: Platform Band (what the live platform runs), the noise core's Default, or your own yaml with `profile_name` and an `snr` section. Room reflection: Platform Band, Strict (the RT60 core's built-in) or Forgiving, or your own yaml with `profile_name` and a `gate` section. A yaml is read on your machine, never uploaded. Changing a profile re-scores the takes you already have; a new quiet-room profile re-scores the claps too, since they read its room tone.
 
 Add `?debug` to the address for a "Download this take" link.
 
