@@ -1,0 +1,13 @@
+# A user's noise profile, for the parity test: what someone might load with the quiet
+# room's "Load your own yaml" button. It is not a policy. It moves every band so the
+# corpus lands differently than under the shipped profiles, and both sides read it
+# through the same resolve_profile as the page.
+
+profile_name: "Parity fixture"
+config_version: "test"
+
+snr:
+  reject_below: 30.0
+  warn_below: 42.0
+  caution_below: 50.0
+  pass_above: 50.0

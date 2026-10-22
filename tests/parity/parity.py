@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # parity.py - the parity test (DESIGN_NOTE.md section 3; M1 gate 1, 2026-10-21; M2 adds
-# the 44.1 kHz set).
+# the 44.1 kHz set; M3 adds the page's flow and P3).
 #
 # Do the vendored cores score the Testing corpus the same in Pyodide as in CPython,
 # and does CPython still reproduce the corpus's stored records?
@@ -12,10 +12,18 @@
 #       both sides start from the same files and each derives its 48 kHz working copies
 #       with its own soxr (0.5.0.post1 in Pyodide, 1.1.0 live). The largest sample
 #       difference between the two sides' working copies is reported too.
+#       Four more sets run the page's flow (run_page_corpus: the level take, then the
+#       room-tone take only if the level gate passed) under each quiet-room profile the
+#       page offers: Platform Band, the noise core's Default, a user's yaml (the fixture
+#       in this folder), and Platform Band at 44.1 kHz.
 #   P2  CPython against the stored records in each folder's screening_result.json,
 #       defaults only (the June records used them), same tolerances. One difference is
 #       expected and listed, not counted: the live RT60 core is newer than the one that
 #       wrote the records and adds "dry_room": null.
+#   P3  In CPython, the page's flow against run_folder on the same takes and profile:
+#       the level and quiet-room records must agree, and the page must stop exactly where
+#       the level gate fails. The identity fields differ by design and are listed: the
+#       page has no talent or language to pass.
 #   N   Near misses (builds:grader-negative-control): the comparison must catch every
 #       folder's record paired with the wrong folder's, a value nudged just past each
 #       tolerance and a changed verdict, and must pass a value nudged just inside each
@@ -63,6 +71,16 @@ PROFILES = ("default", "platform_band")
 SETS = {"default": ("default", 48000),
         "platform_band": ("platform_band", 48000),
         "platform_band_44k": ("platform_band", 44100)}
+# P1's page sets (M3): name -> (quiet-room profile, capture rate), scored the page's
+# way. FIXTURE stands for the user's yaml; each side reads its own copy of it.
+FIXTURE = "fixture_noise_profile.yaml"
+PAGE_SETS = {"page_platform_band": ("platform_band", 48000),
+             "page_default": ("default", 48000),
+             "page_yours": (FIXTURE, 48000),
+             "page_platform_band_44k": ("platform_band", 44100)}
+# P3: each page set against the run_folder set scored the same way.
+PAGE_PAIRS = {"page_platform_band": "platform_band", "page_default": "default",
+              "page_platform_band_44k": "platform_band_44k"}
 STAGES = {"level": "level_check", "noise": "noise_profile", "rt60": "rt60"}
 GATES = {"level_check": "level_gate", "noise_profile": "noise_gate", "rt60": "rt60_gate"}
 
@@ -85,6 +103,14 @@ def dry_room_added(path, a, b):
     if len(path) >= 2 and path[1] == "rt60" and path[-1] == "dry_room" \
             and a is None and b == compare.MISSING:
         return "RT60 dry_room: null (the live core is newer than the June records)"
+    return None
+
+
+def identity_only(path, a, b):
+    """P3's expected difference: run_folder passes the talent and language it reads from
+    the file name, and the page has none to pass, so the core stores ""."""
+    if str(path[-1]) in ("talent_id", "language_code") and a == "" and b:
+        return "talent_id and language_code: run_folder reads them from the file name; the page has none"
     return None
 
 
@@ -241,7 +267,8 @@ def main():
     work = Path(tempfile.mkdtemp(prefix="recqc-parity-"))
     folders = [d for d in sorted(corpus.iterdir())
                if d.is_dir() and any(d.glob("*" + recqc_runner.TAKE_SUFFIXES["phrase"]))]
-    for name, (profile, rate) in SETS.items():
+    all_sets = {**SETS, **PAGE_SETS}
+    for name, (profile, rate) in all_sets.items():
         for folder in folders:
             for side in ("cpython", "pyodide"):
                 (work / side / name / folder.name).mkdir(parents=True)
@@ -252,23 +279,35 @@ def main():
                 else:
                     write_44k(take, first)
                 shutil.copy2(first, work / "pyodide" / name / folder.name / take.name)
+    for side in ("cpython", "pyodide"):
+        shutil.copy2(HERE / FIXTURE, work / side / FIXTURE)
+    # The user's yaml as each side names it (the Pyodide side sees the work folder at /work).
+    yours = {"cpython": str(work / "cpython" / FIXTURE), "pyodide": f"/work/{FIXTURE}"}
+    page_profile = lambda profile, side: yours[side] if profile == FIXTURE else profile  # noqa: E731
     print(f"Corpus   {corpus.name}: {len(folders)} folders, takes copied to {work} "
-          f"({len(SETS)} sets: {', '.join(SETS)})")
+          f"({len(all_sets)} sets: {', '.join(all_sets)})")
 
     try:
         # 4. CPython side, in this process. A JSON round trip makes both sides' types match.
-        cpython, cpython_seconds = {}, {}
+        cpython, cpython_pages, cpython_seconds = {}, {}, {}
         for name, (profile, _) in SETS.items():
             t0 = time.perf_counter()
             rows = recqc_runner.run_corpus(work / "cpython" / name, profile)
             cpython_seconds[name] = time.perf_counter() - t0
             cpython[name] = json.loads(json.dumps(rows))
+        for name, (profile, _) in PAGE_SETS.items():
+            t0 = time.perf_counter()
+            rows = recqc_runner.run_page_corpus(work / "cpython" / name, page_profile(profile, "cpython"))
+            cpython_seconds[name] = time.perf_counter() - t0
+            cpython_pages[name] = json.loads(json.dumps(rows))
 
         # 5. Pyodide side, in Node.
         out_json = work / "pyodide.json"
         t0 = time.perf_counter()
+        specs = [f"{n}:{p}" for n, (p, _) in SETS.items()] + \
+                [f"page:{n}:{page_profile(p, 'pyodide')}" for n, (p, _) in PAGE_SETS.items()]
         proc = subprocess.run([node, str(HERE / "run_pyodide.mjs"), str(work / "pyodide"),
-                               str(out_json), *(f"{n}:{p}" for n, (p, _) in SETS.items())],
+                               str(out_json), *specs],
                               capture_output=True, text=True, timeout=3600)
         node_seconds = time.perf_counter() - t0
         if proc.returncode != 0 or not out_json.is_file():
@@ -292,9 +331,20 @@ def main():
                           (name,))
             passed &= show(comp, f"P1 {set_name}: Pyodide (A) vs CPython (B)")
             results[f"P1 {set_name}"] = comp
+        for set_name in PAGE_SETS:
+            comp = compare.Comparison()
+            a_rows = {r["folder"]: r for r in pyo["pages"][set_name]}
+            b_rows = {r["folder"]: r for r in cpython_pages[set_name]}
+            for name in sorted(set(a_rows) | set(b_rows)):
+                comp.walk(a_rows.get(name, compare.MISSING), b_rows.get(name, compare.MISSING),
+                          (name,))
+            ran = sum("skipped" not in r["noise"] for r in cpython_pages[set_name])
+            passed &= show(comp, f"P1 {set_name}: Pyodide (A) vs CPython (B), "
+                                 f"quiet room on {ran} of {len(b_rows)} folders")
+            results[f"P1 {set_name}"] = comp
 
         # The derived working copies themselves, for each resampled set.
-        for set_name, (_, rate) in SETS.items():
+        for set_name, (_, rate) in all_sets.items():
             if rate == 48000:
                 continue
             worst, compared, problems = working_copy_difference(work, set_name)
@@ -320,10 +370,31 @@ def main():
         passed &= show(comp, "P2 default: CPython (A) vs stored records (B)")
         results["P2 default"] = comp
 
+        # 8. P3: the page's flow against run_folder, in CPython, on the same takes.
+        for page_set, folder_set in PAGE_PAIRS.items():
+            comp = compare.Comparison(expected=[identity_only])
+            ref = {r["folder"]: r for r in cpython[folder_set]}
+            ran = 0
+            for page in cpython_pages[page_set]:
+                folder, theirs = page["folder"], ref[page["folder"]]
+                comp.walk(page["level"].get("level"), theirs.get("level"), (folder, "level"))
+                comp.walk(page["level"].get("level_gate"), theirs.get("level_gate"), (folder, "level_gate"))
+                if "skipped" in page["noise"]:
+                    # The page stops at a failed level gate; run_folder scores on regardless.
+                    comp.walk("skipped", "skipped" if theirs["level_gate"][0] != "PASS" else "ran",
+                              (folder, "quiet room"))
+                    continue
+                ran += 1
+                comp.walk(page["noise"].get("noise"), theirs.get("noise"), (folder, "noise"))
+                comp.walk(page["noise"].get("noise_gate"), theirs.get("noise_gate"), (folder, "noise_gate"))
+            passed &= show(comp, f"P3 {page_set}: the page's flow (A) vs run_folder {folder_set} (B), "
+                                 f"quiet room on {ran} folders")
+            results[f"P3 {page_set}"] = comp
+
         # N: the comparison has to be able to fail, or its passes above prove nothing.
         passed &= near_misses(pyo["profiles"]["default"], cpython["default"])
 
-        # 8. pyodide/ must be unchanged (Node would have downloaded a missing wheel into it).
+        # 9. pyodide/ must be unchanged (Node would have downloaded a missing wheel into it).
         listing_after = sorted(p.name for p in (REPO / "pyodide").iterdir())
         if listing_after != listing_before:
             passed = False
@@ -332,7 +403,7 @@ def main():
         else:
             print("PASS     pyodide/ unchanged by the run (nothing was downloaded)")
 
-        # 9. Timings, for the record (not compared).
+        # 10. Timings, for the record (not compared).
         print()
         for set_name in SETS:
             for side, rows in (("CPython", cpython[set_name]), ("Pyodide", pyo["profiles"][set_name])):

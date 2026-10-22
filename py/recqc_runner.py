@@ -18,13 +18,18 @@ would on the platform:
             _gate_rt60(borderline_pass=True), the functions the platform calls
     format  provenance.verify_provenance on each take as captured, before the working
             copy (ingest_capture's order)
+    profile one per core, as the platform has one setting per core (noise_profile_name,
+            rt60_profile_name): a shipped yaml, the core's built-in config, or a yaml
+            the user picked; results carry its name and config_sha256 (the AB-6 stamp)
 
-Two entry points. run_folder scores one folder of takes (a phrase, a noise and a clap
+The entry points. run_folder scores one folder of takes (a phrase, a noise and a clap
 WAV) with no browser and no mic; every stage that can run does run, for coverage, and
-the parity test diffs its records between CPython and Pyodide. run_level_take (M2)
-scores the one level take the page captured, the way the page shows it. Stopping at
-the first failed gate comes with the M3-M4 flow. The results are plain JSON-safe dicts,
-so the same functions run in CPython and in Pyodide.
+the parity test diffs its records between CPython and Pyodide. The page's takes go
+through run_level_take (M2) and run_noise_take (M3), one call per take, in the
+platform's stage order: the quiet room runs only after the level gate passed.
+run_page_flow runs that order over a folder of takes, so the parity test covers the
+page's path too. The results are plain JSON-safe dicts, so the same functions run in
+CPython and in Pyodide.
 
 Usage:  python3 py/recqc_runner.py <folder of takes, or a folder of such folders> [profile]
 """
@@ -35,6 +40,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+import yaml
 
 # Importing the cores package runs the start check before any vendored module loads.
 from cores import CORES_DIR
@@ -48,6 +54,18 @@ from cores import screening_pipeline_core as spc
 # M1 profiles. "default" is each core's built-in config (what the stored corpus
 # records used); "platform_band" is the policy the live platform runs.
 PROFILES = ("default", "platform_band")
+
+# The page's selector: shipped profiles per core (Rick 2026-10-22, one selector per
+# core). "default" is the core's built-in config, what the platform runs when its
+# setting is empty. The RT60 core's built-in config is Strict (same name and numbers as
+# configs/rt60/strict.yaml), so RT60 lists Strict alone. There is no noise Strict or
+# Forgiving, here or on the platform.
+SHIPPED_PROFILES = {"noise": ("platform_band", "default"),
+                    "rt60": ("platform_band", "strict", "forgiving")}
+CORE_MODULES = {"noise": noise_core, "rt60": rt60_core}
+# The section a user's yaml must carry for each core, and the core's name in messages.
+CORE_SECTIONS = {"noise": "snr", "rt60": "gate"}
+CORE_NAMES = {"noise": "a noise", "rt60": "an RT60"}
 
 TAKE_SUFFIXES = {"phrase": "_phrase.wav", "noise": "_noise.wav", "clap": "_clap.wav"}
 
@@ -70,6 +88,54 @@ def load_profile(name):
     noise_config = noise_core.load_config(CORES_DIR / "configs" / "noise" / f"{name}.yaml")
     rt60_config = rt60_core.load_config(CORES_DIR / "configs" / "rt60" / f"{name}.yaml")
     return noise_config, rt60_config
+
+
+def resolve_profile(core, choice):
+    """(config, stamp) for one core's profile: a shipped name or the path of a user's yaml.
+
+    config is what the core is called with: None for "default", as the platform passes
+    None when no profile is set. stamp is the platform's AB-6 stamp, the profile's name
+    and config_sha256 (the core's own hash of the config it runs), plus "shipped" or
+    "yours".
+
+    A user's yaml is read by the core's own load_config, merged over the core's built-in
+    config. RecQC refuses it first unless it sets profile_name and carries the core's own
+    section: a yaml with no name would be stamped with the built-in's name, and an RT60
+    yaml loaded for the quiet room would run the noise defaults under the RT60 name.
+    """
+    module = CORE_MODULES[core]
+    if choice in SHIPPED_PROFILES[core]:
+        source = "shipped"
+        config = (None if choice == "default"
+                  else module.load_config(CORES_DIR / "configs" / core / f"{choice}.yaml"))
+    else:
+        source = "yours"
+        try:
+            raw = yaml.safe_load(Path(choice).read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:   # one line for the page, which shows the last line
+            mark = getattr(e, "problem_mark", None)
+            where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+            raise ValueError(f"the yaml does not parse{where}: {getattr(e, 'problem', None) or e}") from None
+        if not isinstance(raw, dict):
+            raise ValueError("the yaml must be a mapping of settings, as the shipped profiles are")
+        if not raw.get("profile_name"):
+            raise ValueError("the yaml must set profile_name, so each result names its profile")
+        if not isinstance(raw.get(CORE_SECTIONS[core]), dict):
+            raise ValueError(f"the yaml has no '{CORE_SECTIONS[core]}' section, "
+                             f"so it is not {CORE_NAMES[core]} profile")
+        config = module.load_config(choice)
+    resolved = config if config is not None else module.load_config(None)
+    stamp = {"profile_name": resolved.get("profile_name"),
+             "config_sha256": module.config_sha256(resolved), "source": source}
+    return config, stamp
+
+
+def describe_profile(core, choice):
+    """The page's view of a profile before any take: its stamp and the full config the
+    core will run. Raises as resolve_profile does, so a bad yaml is refused on pick."""
+    config, stamp = resolve_profile(core, choice)
+    resolved = config if config is not None else CORE_MODULES[core].load_config(None)
+    return to_plain({"stamp": stamp, "config": resolved})
 
 
 def find_takes(folder):
@@ -232,11 +298,82 @@ def run_level_take(wav, bypass="verified"):
     return to_plain(out)
 
 
+def run_noise_take(wav, speech_level_dba, profile="platform_band"):
+    """Score the room-tone take the page captured. Returns a JSON-safe dict.
+
+    The platform's quiet-room stage (app/screening.py analyze_noise) in its order: the
+    44.1 kHz floor, the 48 kHz working copy, then scan_noise_profile in session modality
+    with the speech level the level take measured, and the platform's noise gate. The
+    page asks only after this run's level gate passed, as the platform refuses the stage
+    until then. There is no format verdict here: the platform takes it from one take,
+    and RecQC takes it from the level take (Rick's ruling, 2026-10-21).
+
+    `profile` is a shipped noise profile or the path of the user's yaml. On a PASS the
+    core writes the room tone, trimmed to its longest clean run, as <take>_np.wav: the
+    file RT60 reads and "Save noise profile" offers, named with its length under "np".
+    A REJECT writes no WAV, as the core decides.
+    """
+    wav = Path(wav)
+    info = sf.info(str(wav))
+    out = {"take": wav.name, "timings": {},
+           "capture": {"sample_rate": info.samplerate, "subtype": info.subtype,
+                       "channels": info.channels, "duration": info.duration}}
+    if info.samplerate < RATE_FLOOR:
+        out["refused"] = f"Sample rate {info.samplerate} Hz is below the 44.1 kHz minimum."
+        return to_plain(out)
+    try:
+        config, out["profile"] = resolve_profile("noise", profile)
+    except Exception as e:  # noqa: BLE001 - reported, not raised
+        out["profile"] = {"error": f"{type(e).__name__}: {e}"}
+        return to_plain(out)
+    run = stage_runner(out, wav.parent)
+
+    def make_working_copy():
+        path, derived = working_copy(wav)
+        return {"file": path, "derived": derived}
+
+    copy = run("working_copy", make_working_copy)
+    if copy:
+        noise = run("noise", lambda: noise_core.scan_noise_profile(
+            copy["file"], modality="session", speech_level_dba=float(speech_level_dba),
+            config=config, write_outputs=True, log_path=wav.parent / f"{wav.stem}_log.jsonl"))
+        if noise:
+            out["noise_gate"] = list(spc._gate_noise(noise))
+            if noise.get("output_wav"):
+                out["np"] = {"file": noise["output_wav"],
+                             "duration": sf.info(noise["output_wav"]).duration}
+    return to_plain(out)
+
+
+def run_page_flow(folder, noise_profile="platform_band"):
+    """The page's flow over one folder of takes, with no browser: the phrase through
+    run_level_take, then the noise take through run_noise_take with that take's speech
+    level, only if the level gate passed. Returns a JSON-safe dict."""
+    folder = Path(folder)
+    takes = find_takes(folder)
+    out = {"folder": folder.name, "level": run_level_take(takes["phrase"])}
+    if (out["level"].get("level_gate") or [None])[0] == "PASS":
+        out["noise"] = run_noise_take(takes["noise"], out["level"]["level"]["speech_level_dba"],
+                                      noise_profile)
+    else:
+        out["noise"] = {"skipped": "the level gate did not pass"}
+    return out
+
+
+def take_folders(root):
+    """The subfolders of root that hold takes, in name order."""
+    return sorted(p for p in Path(root).iterdir()
+                  if p.is_dir() and any(p.glob("*" + TAKE_SUFFIXES["phrase"])))
+
+
 def run_corpus(root, profile="default"):
     """run_folder on every subfolder of root that holds takes, in name order."""
-    folders = sorted(p for p in Path(root).iterdir()
-                     if p.is_dir() and any(p.glob("*" + TAKE_SUFFIXES["phrase"])))
-    return [run_folder(f, profile) for f in folders]
+    return [run_folder(f, profile) for f in take_folders(root)]
+
+
+def run_page_corpus(root, noise_profile="platform_band"):
+    """run_page_flow on every subfolder of root that holds takes, in name order."""
+    return [run_page_flow(f, noise_profile) for f in take_folders(root)]
 
 
 if __name__ == "__main__":

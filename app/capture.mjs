@@ -10,9 +10,10 @@ import { WORKLET_CODE, encodeWav24, getMicConstraints, checkMicProcessing,
          IS_MOBILE, shared } from "./platform_capture.mjs";
 
 // The platform's values: 200 ms recorded before a take shows as recording and after
-// Stop, and the phrase stage's auto-stop, counted from the start of the pre-roll.
+// Stop, and each stage's auto-stop (its STAGE_INFO), counted from the start of the
+// pre-roll.
 const PRE_ROLL_MS = 200, POST_ROLL_MS = 200;
-export const MAX_SECONDS = 20;
+export const MAX_SECONDS = { phrase: 20, noise: 12 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

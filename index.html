@@ -26,9 +26,10 @@
     .card { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
     .phrase { font-size: 1.15rem; margin: 0.5rem 0 1rem; padding-left: 0.75rem; border-left: 3px solid var(--line); }
     .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-    button { font: inherit; padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid var(--line);
+    button, select { font: inherit; padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid var(--line);
              background: var(--panel); color: var(--ink); cursor: pointer; }
-    button:disabled { opacity: 0.45; cursor: default; }
+    select { padding: 0.35rem 0.5rem; }
+    button:disabled, select:disabled { opacity: 0.45; cursor: default; }
     .timer { font-family: ui-monospace, Menlo, monospace; min-width: 4rem; }
     .meter { height: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
              margin: 1rem 0 0.4rem; overflow: hidden; }
@@ -38,12 +39,13 @@
     table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
     th, td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
     th { font-weight: 600; }
+    td { overflow-wrap: anywhere; }
     pre { background: var(--panel); padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
   </style>
 </head>
 <body>
   <h1>RecQC Standalone</h1>
-  <p class="banner">In development: level check only. The quiet-room and room-reflection checks, and the tier ceiling they feed, come in later milestones.</p>
+  <p class="banner">In development: the level check and the quiet room run. The room-reflection check, and the tier ceiling it feeds, come in a later milestone.</p>
   <p>A recording-chain check that runs in your browser, on your machine: the audio side of the MAD collection platform's Rec QC, scored by the platform's own measurement cores. Nothing is uploaded.</p>
   <p id="browser-note" class="warn" hidden>This browser is not Chrome or Chromium, so the capture chain is unverified.</p>
   <p id="engine" class="soft" aria-live="polite">Starting the analysis engine...</p>
@@ -65,6 +67,34 @@
     <div id="result" aria-live="polite"></div>
   </section>
 
+  <section class="card" aria-labelledby="profile-title">
+    <h2 id="profile-title">Scoring profile</h2>
+    <p>The policy the room checks are scored under, one per check, as on the platform. Platform Band is what the live platform runs. The level check has none: its thresholds are fixed in its core.</p>
+    <div class="controls">
+      <label for="noise-profile">Quiet room</label>
+      <select id="noise-profile">
+        <option value="platform_band">Platform Band</option>
+        <option value="default">Default (the core's built-in)</option>
+      </select>
+      <button id="noise-yaml-pick" type="button">Load your own yaml...</button>
+      <input id="noise-yaml" type="file" accept=".yaml,.yml" hidden>
+    </div>
+    <p id="noise-profile-error" class="fail" hidden></p>
+    <p id="noise-profile-info" class="fine">Platform Band. Its thresholds show once the analysis engine is ready.</p>
+  </section>
+
+  <section class="card" aria-labelledby="noise-title">
+    <h2 id="noise-title">Quiet room</h2>
+    <p>Stay completely silent and still. Do not adjust your level. Record at least 5 seconds of room tone. Auto-stops at 12 s.</p>
+    <div class="controls">
+      <button id="noise-record" disabled>Record room tone</button>
+      <button id="noise-stop" disabled>Stop</button>
+      <span id="noise-timer" class="timer"></span>
+    </div>
+    <p id="noise-status" class="fine"></p>
+    <div id="noise-result" aria-live="polite"></div>
+  </section>
+
   <p class="fine">Every number is a property of this capture chain, in this room, now, in uncalibrated dBFS. It says whether a take would clear the platform's gates, not how a recording will score with a listener or a model.</p>
   <p class="fine"><a href="https://github.com/ricktorres25/recqc-standalone/blob/main/README.md">README</a> · <a href="https://github.com/ricktorres25/recqc-standalone/blob/main/DESIGN_NOTE.md">Design note</a> · <a href="https://github.com/ricktorres25/recqc-standalone">Repository</a></p>
 
@@ -84,6 +114,8 @@
     const DEBUG = params.has("debug"), SELFTEST = params.has("selftest");
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const fmt = (v, digits = 2) => (typeof v === "number" ? v.toFixed(digits) : "-");
+    // The message of a Python error the worker passed on, without its traceback or class.
+    const lastLine = (text) => String(text).trim().split("\n").pop().replace(/^[A-Za-z]*Error: /, "");
     const TIERS = { 2: "Lo-fi", 3: "Good", 4: "Hi-fi" };   // the platform's AUDIO_TIERS
 
     // navigator.userAgentData exists only in Chromium browsers (the platform's own marker).
@@ -112,13 +144,21 @@
     };
     worker.onerror = (e) => engineFailed(e.message || "the worker did not load");
 
-    async function analyze(wav, bypass) {
-      const buffer = await wav.arrayBuffer();
+    // One request to the worker; resolves with its reply (see app/recqc_worker.mjs).
+    function request(op, fields, transfer = []) {
       return new Promise((resolve) => {
         const id = ++nextId;
         pending.set(id, resolve);
-        worker.postMessage({ id, op: "level", wav: buffer, bypass }, [buffer]);
+        worker.postMessage({ id, op, ...fields }, transfer);
       });
+    }
+    async function analyzeLevel(wav, bypass) {
+      const buffer = await wav.arrayBuffer();
+      return request("level", { wav: buffer, bypass }, [buffer]);
+    }
+    async function analyzeNoise(wav, speech, profile) {
+      const buffer = await wav.arrayBuffer();
+      return request("noise", { wav: buffer, speech_level_dba: speech, profile }, [buffer]);
     }
 
     // ---- The live meter, drawn from the worklet's messages ----
@@ -178,16 +218,42 @@
       return state;
     }
 
-    // ---- One take, start to result ----
+    // ---- This run: the takes scored since the mic was turned on ----
+    // Turning the mic on starts a new run. A new level take clears the quiet room, whose
+    // SNR is measured against that take's speech level (and the gain may have moved).
+    let run = { level: null, noise: null };
+    const levelPassed = () => !!(run.level && run.level.reply.ok &&
+      (run.level.reply.result.level_gate || [])[0] === "PASS");
+    const speechLevel = () => run.level.reply.result.level.speech_level_dba;
+
+    // ---- The take controls ----
+    // stage is the mic's state: off, armed, starting, recording or stopping. takeKind is
+    // the take being recorded: "phrase" (Set your level) or "noise" (Quiet room). busy is
+    // set while a profile is checked or a take is re-scored.
     const capture = new Capture(onMeter);
-    let stage = "off", readback = null, timer = null, startedAt = 0;
+    let stage = "off", takeKind = null, busy = false, readback = null, timer = null, startedAt = 0;
+    const TAKE_UI = { phrase: { record: "record", timer: "timer", result: "result" },
+                      noise: { record: "noise-record", timer: "noise-timer", result: "noise-result" } };
     function setStage(next) {
       stage = next;
-      $("arm").disabled = next !== "off" && next !== "armed";
-      $("record").disabled = next !== "armed" || bypassState(readback || {}) === "active";
-      $("stop").disabled = next !== "recording";
+      const active = bypassState(readback || {}) === "active";
+      const idle = !busy && (next === "off" || next === "armed");
+      $("arm").disabled = !idle;
+      $("record").disabled = busy || next !== "armed" || active;
+      $("stop").disabled = !(next === "recording" && takeKind === "phrase");
       $("arm").textContent = next === "off" ? "Turn on the mic" : "Turn off the mic";
+      // The quiet room runs only after this run's level gate passed, as on the platform.
+      const blocked = next === "off" ? "Turn on the mic first, in Set your level."
+        : active ? "The mic check found processing active, so this stage does not run either."
+        : !levelPassed() ? "Pass the level check first: the quiet room's SNR is measured against " +
+                           "the speech level of that take."
+        : "";
+      $("noise-status").textContent = blocked;
+      $("noise-record").disabled = busy || next !== "armed" || !!blocked;
+      $("noise-stop").disabled = !(next === "recording" && takeKind === "noise");
+      $("noise-profile").disabled = $("noise-yaml-pick").disabled = !idle;
     }
+    setStage("off");
 
     $("arm").onclick = async () => {
       if (stage === "armed") {   // the same button turns the mic off again
@@ -208,53 +274,78 @@
         setStage("off");
         return;
       }
+      // A new run: with the mic reopened, the device or the gain may have changed.
+      run = { level: null, noise: null };
+      for (const ui of Object.values(TAKE_UI)) { $(ui.result).replaceChildren(); $(ui.timer).textContent = ""; }
+      $("record").textContent = "Record";
+      $("noise-record").textContent = "Record room tone";
       showReadback(readback);
       setStage("armed");
     };
 
-    $("record").onclick = async () => {
-      if (stage !== "armed") return;
+    async function startTake(kind) {
+      if (stage !== "armed" || busy) return;
+      takeKind = kind;
       setStage("starting");
-      $("result").replaceChildren();
+      $(TAKE_UI[kind].result).replaceChildren();
+      if (kind === "phrase") {   // a new level take starts the run's results over
+        run = { level: null, noise: null };
+        $("noise-result").replaceChildren();
+        $("noise-timer").textContent = "";
+        $("noise-record").textContent = "Record room tone";
+      }
       startedAt = performance.now();   // the platform's auto-stop counts the pre-roll too
       await capture.start();
       setStage("recording");
       timer = setInterval(() => {
         const s = (performance.now() - startedAt) / 1000;
-        $("timer").textContent = `${s.toFixed(1)} s`;
-        if (s >= MAX_SECONDS) stopTake();
+        $(TAKE_UI[kind].timer).textContent = `${s.toFixed(1)} s`;
+        if (s >= MAX_SECONDS[kind]) stopTake();
       }, 100);
-    };
-    $("stop").onclick = () => stopTake();
+    }
+    $("record").onclick = () => startTake("phrase");
+    $("noise-record").onclick = () => startTake("noise");
+    $("stop").onclick = $("noise-stop").onclick = () => stopTake();
 
     async function stopTake() {
       if (stage !== "recording") return;
       clearInterval(timer);
+      const kind = takeKind;
       setStage("stopping");
       const take = await capture.stop();
+      const box = $(TAKE_UI[kind].result);
       if (!take.wav) {
-        $("result").replaceChildren(el("p", "No audio was captured. Turn the mic off and on again, then retry.", "fail"));
+        box.replaceChildren(el("p", "No audio was captured. Turn the mic off and on again, then retry.", "fail"));
         setStage("armed");
         return;
       }
       if (engineState === "failed") {
-        $("result").replaceChildren(el("p", "The analysis engine did not start, so this take cannot be scored. " +
+        box.replaceChildren(el("p", "The analysis engine did not start, so this take cannot be scored. " +
           "Reload the page; if it fails again, the message above says why.", "fail"));
         setStage("armed");
         return;
       }
-      $("result").replaceChildren(el("p", engineState === "ready" ? "Analyzing..."
+      box.replaceChildren(el("p", engineState === "ready" ? "Analyzing..."
         : "Analyzing (the engine is still starting; the first take waits for it)...", "soft"));
-      const bypass = bypassState(readback);
-      const reply = await analyze(take.wav, bypass);
-      render(reply, take, bypass);
+      let reply;
+      if (kind === "phrase") {
+        const bypass = bypassState(readback);
+        reply = await analyzeLevel(take.wav, bypass);
+        run.level = { take, reply, bypass };
+        renderLevel(reply, take, bypass);
+        $("record").textContent = "Record again";
+      } else {
+        reply = await analyzeNoise(take.wav, speechLevel(), noiseProfile);
+        run.noise = { take, reply, profile: noiseProfile, readback, at: new Date() };
+        renderNoise();
+        $("noise-record").textContent = "Record again";
+      }
       setStage("armed");
-      $("record").textContent = "Record again";
       return { take, reply };
     }
 
-    // ---- The result ----
-    function render(reply, take, bypass) {
+    // ---- The level result ----
+    function renderLevel(reply, take, bypass) {
       const box = $("result");
       box.replaceChildren();
       if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
@@ -301,23 +392,237 @@
       }
       box.append(table);
 
-      if (DEBUG) {
-        const a = el("a", "Download this take (WAV)");
-        a.href = URL.createObjectURL(take.wav);
-        a.download = `recqc_level_${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
-        box.append(el("p"));
-        box.lastChild.append(a);
-      }
+      if (DEBUG) box.append(takeLink(take, "level"));
       const details = el("details");
       details.append(el("summary", "Full record"), el("pre", JSON.stringify({ readback, take: { rate: take.rate,
         seconds: Number(seconds), capture_bookkeeping: take.bookkeeping }, result: r }, null, 2)));
       box.append(details);
     }
     function row(cells, tag = "td") { const tr = el("tr"); for (const c of cells) tr.append(el(tag, c ?? "-")); return tr; }
+    // ?debug: a link to download the take as captured.
+    function takeLink(take, kind) {
+      const a = el("a", "Download this take (WAV)");
+      a.href = URL.createObjectURL(take.wav);
+      a.download = `recqc_${kind}_${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+      const p = el("p");
+      p.append(a);
+      return p;
+    }
+
+    // ---- The scoring profile (design note section 6; one per core, Rick 2026-10-22) ----
+    // The quiet room's profile. The room-reflection row comes with that check.
+    let noiseProfile = { name: "platform_band" };   // {name} shipped, or {name, text} the user's yaml
+    let noiseChoice = "platform_band", noiseDesc = null, yoursProfile = null;
+    // The bands as the core classifies them: PASS starts at caution_below (pass_above is
+    // recorded, never compared).
+    const bands = (t) => `REJECT below ${t.reject_below} dB SNR, WARN below ${t.warn_below}, ` +
+                         `CAUTION below ${t.caution_below}, PASS from ${t.caution_below}`;
+    function showProfile() {
+      const { stamp, config } = noiseDesc;
+      $("noise-profile-info").textContent = `${stamp.profile_name}, ` +
+        (stamp.source === "yours" ? `your yaml (${noiseProfile.name}), read on this machine and never uploaded`
+                                  : "shipped") +
+        `: ${bands(config.snr)}. config sha256 ${stamp.config_sha256.slice(0, 16)}`;
+    }
+    // Check a profile in the worker and, if the core accepts it, score with it from now on;
+    // a quiet-room take already scored in this run is re-scored under it.
+    async function useNoiseProfile(profile, choice) {
+      busy = true;
+      setStage(stage);
+      const reply = await request("profile", { core: "noise", profile });
+      busy = false;
+      if (!reply.ok) {
+        $("noise-profile").value = noiseChoice;   // the profile in use stays
+        $("noise-profile-error").textContent = `${profile.name} was not loaded: ${lastLine(reply.error)}`;
+        $("noise-profile-error").hidden = false;
+        setStage(stage);
+        return;
+      }
+      $("noise-profile-error").hidden = true;
+      if (choice === "yours") {
+        yoursProfile = profile;
+        let option = $("noise-profile").querySelector('option[value="yours"]');
+        if (!option) { option = el("option"); option.value = "yours"; $("noise-profile").append(option); }
+        option.textContent = `Yours: ${reply.result.stamp.profile_name} (${profile.name})`;
+      }
+      noiseProfile = profile;
+      noiseChoice = choice;
+      noiseDesc = reply.result;
+      $("noise-profile").value = choice;
+      showProfile();
+      setStage(stage);
+      if (run.noise) await rescoreNoise();
+    }
+    $("noise-profile").onchange = () => {
+      const choice = $("noise-profile").value;
+      useNoiseProfile(choice === "yours" ? yoursProfile : { name: choice }, choice);
+    };
+    $("noise-yaml-pick").onclick = () => { $("noise-yaml").value = ""; $("noise-yaml").click(); };
+    $("noise-yaml").onchange = async () => {
+      const file = $("noise-yaml").files[0];
+      if (!file) return;
+      if (file.size > 1e6) {   // a profile is a few hundred bytes; this is not one
+        $("noise-profile-error").textContent = `${file.name} was not loaded: at ${(file.size / 1e6).toFixed(1)} MB it is not a profile yaml.`;
+        $("noise-profile-error").hidden = false;
+        return;
+      }
+      useNoiseProfile({ name: file.name, text: await file.text() }, "yours");
+    };
+    // The shipped default, described once the engine is up (unless a choice came first).
+    request("profile", { core: "noise", profile: noiseProfile }).then((reply) => {
+      if (noiseDesc) return;
+      if (reply.ok) { noiseDesc = reply.result; showProfile(); }
+      else $("noise-profile-info").textContent = "The profile could not be read: " + lastLine(reply.error);
+    });
+
+    // Score the run's room-tone take again, under the profile now in use.
+    async function rescoreNoise() {
+      const prior = run.noise;
+      busy = true;
+      setStage(stage);
+      $("noise-result").replaceChildren(el("p", "Scoring the same room-tone take under the new profile...", "soft"));
+      const reply = await analyzeNoise(prior.take.wav, speechLevel(), noiseProfile);
+      if (run.noise === prior) {
+        run.noise = { ...prior, reply, profile: noiseProfile };
+        renderNoise();
+      }
+      busy = false;
+      setStage(stage);
+    }
+
+    // ---- The quiet-room result ----
+    const GATE_REASONS = {   // the noise core's gate tokens, in words
+      snr_reject: "the SNR is below the profile's reject line",
+      short_recording: "the take is shorter than the profile's minimum",
+      insufficient_clean_noise: "no unbroken stretch of quiet was long enough: clicks, taps or speech broke it up",
+      format_fail: "the working copy is not 48 kHz, 24-bit mono",
+    };
+    const DISPOSITION_CLASS = { PASS: "pass", CAUTION: "warn", WARN: "warn", REJECT: "fail" };
+    function renderNoise() {
+      const { take, reply, profile } = run.noise;
+      const box = $("noise-result");
+      box.replaceChildren();
+      if (!reply.ok) { box.append(el("p", "The analysis failed: " + reply.error, "fail")); return; }
+      const r = reply.result;
+      const seconds = (take.samples.length / take.rate).toFixed(1);
+      box.append(el("p", `Take: ${seconds} s at ${take.rate} Hz, 24-bit mono.`, "soft"));
+      if (r.refused) { box.append(el("p", r.refused, "fail")); return; }
+      if (r.profile.error) { box.append(el("p", "The profile did not load: " + r.profile.error, "fail")); return; }
+
+      const table = el("table");
+      table.append(row(["Check", "Result", "Detail"], "th"));
+      const nz = r.noise || {};
+      if (nz.error) table.append(row(["Quiet room", "error", nz.error]));
+      else if (r.noise) {
+        table.append(row(["Noise floor (A-weighted)", "", `${fmt(nz.noise_floor_dba)} dBFS`]));
+        table.append(row(["Noise floor (broadband)", "", `${fmt(nz.noise_floor_dbfs_broadband)} dBFS`]));
+        table.append(row(["Speech level (A-weighted)", "", `${fmt(nz.speech_level_dba)} dBFS, from the level take`]));
+        const tr = row(["SNR (A-weighted)", nz.disposition, `${fmt(nz.snr_db)} dB. ${nz.thresholds.name}: ${bands(nz.thresholds)}.`]);
+        tr.children[1].className = DISPOSITION_CLASS[nz.disposition] || "";
+        table.append(tr);
+      }
+      if (r.noise_gate) {
+        const [verdict, reason] = r.noise_gate;
+        const tr = row(["Quiet-room gate", verdict,
+          reason ? `${GATE_REASONS[reason] || reason} (${reason})` : "clears the platform's quiet-room gate"]);
+        tr.children[1].className = verdict === "PASS" ? "pass" : "fail";
+        table.append(tr);
+      }
+      if (r.np) {
+        table.append(row(["Room tone kept", `${fmt(r.np.duration, 1)} s`, "the longest unbroken quiet stretch, trimmed: " +
+          "what the room-reflection check reads, and what a denoiser can take as its noise print"]));
+      }
+      table.append(row(["Profile", r.profile.profile_name,
+        `${r.profile.source === "yours" ? `your yaml (${profile.name})` : "shipped"}; config sha256 ${r.profile.config_sha256}`]));
+      if (r.working_copy && r.working_copy.derived) {
+        table.append(row(["Working copy", "48 kHz", "derived with soxr, as the platform derives a 44.1 kHz capture's working copy"]));
+      }
+      box.append(table);
+
+      if (reply.np) {
+        const save = el("button", "Save noise profile"), note = el("span", "", "fine"), p = el("p");
+        save.type = "button";
+        save.onclick = async () => {
+          note.className = "fine";
+          try { note.textContent = await saveNoiseProfile(); }
+          catch (e) { note.className = "fail"; note.textContent = `Not saved: ${e.message || e.name}`; }
+        };
+        p.append(save, " ", note);
+        box.append(p, el("p", "Saves two files: the room tone as a 48 kHz, 24-bit WAV, and the core's record " +
+          "as JSON with the mic check added. Chrome asks for a folder; other browsers download both.", "fine"));
+      } else if (r.noise_gate && r.noise_gate[0] !== "PASS") {
+        box.append(el("p", "A take that fails the gate keeps no room tone, so there is no noise profile to save.", "fine"));
+      }
+      if (DEBUG) box.append(takeLink(take, "noise"));
+      const details = el("details");
+      details.append(el("summary", "Full record"), el("pre", JSON.stringify({ take: { rate: take.rate,
+        seconds: Number(seconds), capture_bookkeeping: take.bookkeeping }, result: r }, null, 2)));
+      box.append(details);
+    }
+
+    // ---- Save noise profile (design note section 7, D5) ----
+    // The two files: the trimmed room tone the core wrote, and the core's record with
+    // RecQC's additions under "recqc" (the mic readback, the profile, the saved names).
+    function noiseProfileFiles() {
+      const { take, reply, profile, readback: rb, at } = run.noise;
+      const p2 = (n) => String(n).padStart(2, "0");
+      const base = `recqc_${at.getFullYear()}-${p2(at.getMonth() + 1)}-${p2(at.getDate())}_` +
+                   `${p2(at.getHours())}${p2(at.getMinutes())}${p2(at.getSeconds())}`;
+      const names = { wav: `${base}_np.wav`, json: `${base}_np.json` };
+      const record = { ...reply.result.noise, recqc: {
+        saved_as: names,
+        paths_note: "source_wav and output_wav are paths inside the browser's in-memory file system",
+        profile: profile.text != null ? { ...reply.result.profile, file: profile.name } : reply.result.profile,
+        capture: { mic_check: bypassState(rb), agc: rb.agc ?? null, ns: rb.ns ?? null, ec: rb.ec ?? null,
+                   track_sample_rate: rb.track_sample_rate, context_sample_rate: rb.context_sample_rate,
+                   take_sample_rate: take.rate, browser: rb.browser, is_mobile: rb.is_mobile },
+      } };
+      return [[names.wav, new Blob([reply.np], { type: "audio/wav" })],
+              [names.json, new Blob([JSON.stringify(record, null, 2) + "\n"], { type: "application/json" })]];
+    }
+    // Chrome: one folder picker, both files written into the folder. Elsewhere: two downloads.
+    async function saveNoiseProfile() {
+      const files = noiseProfileFiles();
+      const [wavName, jsonName] = files.map(([name]) => name);
+      if (window.showDirectoryPicker) {
+        let dir;
+        try { dir = await window.showDirectoryPicker({ id: "recqc-noise-profile", mode: "readwrite" }); }
+        catch (e) { if (e.name === "AbortError") return "Not saved: no folder was picked."; throw e; }
+        for (const [name, blob] of files) {
+          const writable = await (await dir.getFileHandle(name, { create: true })).createWritable();
+          await writable.write(blob);
+          await writable.close();
+        }
+        return `Saved ${wavName} and ${jsonName} in the folder "${dir.name}".`;
+      }
+      for (const [name, blob] of files) {
+        const a = el("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      }
+      return `Downloaded ${wavName} and ${jsonName}.`;
+    }
 
     // ---- ?selftest: the whole path once, with whatever mic the browser offers ----
     // A headless Chrome with a fake mic (tests/headless_capture.py) reads the outcome
-    // from the page title.
+    // from the page title. Chrome's own fake mic plays a tone, which can fairly fail the
+    // level gate, and then the quiet room cannot run. With ?selftest=full the fake mic
+    // plays a prepared file instead, speech for its first 10 s and room tone after, and
+    // the quiet room must run: the level take records from about 0.5 to 5.5 s into the
+    // file, the room-tone take from 12 to 18 s.
+    const SELFTEST_FULL = params.get("selftest") === "full";
+    const SELFTEST_TIMES = { level: 5, noiseFrom: 12, noise: 6 };   // seconds
+    async function selftestTake(button, seconds) {
+      if ($(button).disabled) throw new Error(`${button} is disabled. ${$("noise-status").textContent}`);
+      $(button).click();
+      while (stage !== "recording") await sleep(20);
+      await sleep(seconds * 1000);
+      return stopTake();
+    }
     async function selftest() {
       const done = (line) => { document.title = line; $("engine").textContent = line; };
       try {
@@ -325,22 +630,67 @@
         $("arm").click();
         while (stage === "off" && !$("readback").textContent) await sleep(50);
         if (stage !== "armed") return done("SELFTEST FAIL: " + ($("readback").textContent || "mic did not open"));
+        const armedAt = performance.now();
         if (bypassState(readback) === "active") return done("SELFTEST FAIL: browser processing active " + JSON.stringify(readback));
-        $("record").click();
-        while (stage !== "recording") await sleep(20);
-        await sleep(3000);
-        const out = await stopTake();
-        // The path works when every stage produced its record; the verdicts are whatever
-        // the mic gave (a fake mic's tone can fairly fail the level gate).
+
+        // The level take: the path works when every stage produced its record.
+        const out = await selftestTake("record", SELFTEST_FULL ? SELFTEST_TIMES.level : 3);
         const r = out && out.reply.ok ? out.reply.result : null;
         const ok = r && r.provenance && !r.provenance.error && typeof r.format_ceiling === "number"
                    && r.level && !r.level.error && Array.isArray(r.level_gate);
-        done(ok ? `SELFTEST PASS: ${bypassState(readback)}, ${out.take.rate} Hz, ` +
-                  `${(out.take.samples.length / out.take.rate).toFixed(1)} s, format ` +
-                  `${r.provenance.spectral_verdict} (up to ${r.format_ceiling}), true peak ` +
-                  `${fmt(r.level.true_peak_dbtp)} dBTP, ${fmt(r.level.integrated_lufs)} LUFS, ` +
-                  `level gate ${r.level_gate[0]}`
-                : "SELFTEST FAIL: " + (out ? JSON.stringify(out.reply).slice(0, 400) : $("result").textContent));
+        if (!ok) return done("SELFTEST FAIL: " + (out ? JSON.stringify(out.reply).slice(0, 400) : $("result").textContent));
+        const levelLine = `${bypassState(readback)}, ${out.take.rate} Hz, ` +
+          `${(out.take.samples.length / out.take.rate).toFixed(1)} s, format ` +
+          `${r.provenance.spectral_verdict} (up to ${r.format_ceiling}), true peak ` +
+          `${fmt(r.level.true_peak_dbtp)} dBTP, ${fmt(r.level.integrated_lufs)} LUFS, level gate ${r.level_gate[0]}`;
+        if (r.level_gate[0] !== "PASS") {
+          return done(SELFTEST_FULL ? `SELFTEST FAIL: the level gate did not pass, so the quiet room could not run: ${levelLine}`
+                                    : `SELFTEST PASS: ${levelLine}; the quiet room needs a level PASS, so it did not run`);
+        }
+
+        // The quiet room, from the room-tone part of the file, under the default profile.
+        const wait = armedAt + SELFTEST_TIMES.noiseFrom * 1000 - performance.now();
+        if (wait > 0) await sleep(wait);
+        const noise = await selftestTake("noise-record", SELFTEST_TIMES.noise);
+        const n = noise && noise.reply.ok ? noise.reply.result : null;
+        if (!(n && n.noise && !n.noise.error && Array.isArray(n.noise_gate) && n.profile.profile_name === "Platform Band")) {
+          return done("SELFTEST FAIL: quiet room " + JSON.stringify(noise ? noise.reply : null).slice(0, 400));
+        }
+        let noiseLine = `quiet room floor ${fmt(n.noise.noise_floor_dba)} dBFS(A), SNR ${fmt(n.noise.snr_db)} dB, ` +
+                        `${n.noise.disposition}, gate ${n.noise_gate[0]}`;
+        // The save payload, without the folder picker (that one is checked by hand).
+        if (n.noise_gate[0] === "PASS") {
+          const [[wavName, wavBlob], [jsonName, jsonBlob]] = noiseProfileFiles();
+          const head = new TextDecoder().decode(await wavBlob.slice(0, 12).arrayBuffer());
+          const saved = JSON.parse(await jsonBlob.text());
+          if (!(head.startsWith("RIFF") && head.endsWith("WAVE") && saved.verdict === "PASS"
+                && saved.recqc.saved_as.wav === wavName && saved.recqc.capture.mic_check)) {
+            return done("SELFTEST FAIL: the save payload " + JSON.stringify(saved).slice(0, 400));
+          }
+          noiseLine += `, saves ${wavName} (${fmt(n.np.duration, 1)} s of room tone) and ${jsonName}`;
+        }
+        // A profile change re-scores the same take: the floor holds and the stamp moves.
+        $("noise-profile").value = "default";
+        $("noise-profile").dispatchEvent(new Event("change"));
+        while (busy) await sleep(50);
+        const d = run.noise.reply.ok ? run.noise.reply.result : null;
+        if (!(d && d.profile.profile_name === "Default" && d.noise.noise_floor_dba === n.noise.noise_floor_dba)) {
+          return done("SELFTEST FAIL: re-scoring under Default " + JSON.stringify(run.noise.reply).slice(0, 400));
+        }
+        // A user's yaml, as the file picker would hand it over: one without a profile_name
+        // is refused and the profile in use stays; a named one is used and re-scores the take.
+        await useNoiseProfile({ name: "nameless.yaml", text: "snr:\n  warn_below: 40.0\n" }, "yours");
+        if ($("noise-profile-error").hidden || noiseChoice !== "default" || $("noise-profile").value !== "default") {
+          return done("SELFTEST FAIL: a yaml without profile_name was not refused");
+        }
+        await useNoiseProfile({ name: "mine.yaml", text: "profile_name: Selftest\nsnr:\n  warn_below: 40.0\n" }, "yours");
+        const y = run.noise.reply.ok ? run.noise.reply.result : null;
+        if (!(y && y.profile.source === "yours" && y.profile.profile_name === "Selftest"
+              && $("noise-profile").value === "yours" && $("noise-profile-error").hidden)) {
+          return done("SELFTEST FAIL: re-scoring under a user's yaml " + JSON.stringify(run.noise.reply).slice(0, 400));
+        }
+        done(`SELFTEST PASS: ${levelLine}; ${noiseLine}; re-scored under Default: ${d.noise.disposition}; ` +
+             `a nameless yaml refused; under a user's yaml (WARN below 40): ${y.noise.disposition}`);
       } catch (e) { done("SELFTEST FAIL: " + String(e.message || e)); }
     }
     if (SELFTEST) selftest();

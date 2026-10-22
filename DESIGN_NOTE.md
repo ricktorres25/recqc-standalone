@@ -1,6 +1,6 @@
 # RecQC Standalone: design note
 
-**Status:** approved by Rick 2026-10-20 (gate 1 of the build). Written 2026-10-20 (session `s-2026-10-20-code-audio-pipeline-tooling-2`, task `t-recqc-standalone`) from the platform code as read that day. Rulings: career-planning loop `recqc-standalone` and `career-planning:platform-ownership`, both 2026-10-20.
+**Status:** approved by Rick 2026-10-20 (gate 1 of the build). Written 2026-10-20 (session `s-2026-10-20-code-audio-pipeline-tooling-2`, task `t-recqc-standalone`) from the platform code as read that day. Rulings: career-planning loop `recqc-standalone` and `career-planning:platform-ownership`, both 2026-10-20. Section 6 amended 2026-10-22 by Rick's ruling at the M3 sketch: one selector per core.
 
 ## 1. What it is
 
@@ -22,7 +22,7 @@ Dependencies checked today against Pyodide 314.0.7: numpy, scipy, pyyaml, soundf
 2. **Format:** `verify_samples` on the native-rate samples with `lossless=True`; `confirmed_native` gives 4, else 3. A 44.1 kHz chain can never reach 4 (no energy above 22.05 kHz to find); the UI says so.
 3. **Working copy:** 48 kHz, 24-bit, mono via soxr when not already 48 kHz, as the platform's ingest does.
 4. **Level** (`scan_phrase`): true peak, integrated LUFS, A-weighted speech level, crest; peak PASS/HOT/CLIP, loudness PASS/QUIET/TOO_QUIET; FAIL is a stage gate.
-5. **Quiet room** (`scan_noise_profile`, speech level handed over from 4, selected profile): floor dBA and dBFS, SNR; PASS/CAUTION/WARN/REJECT; writes `_np.wav` and a JSON sidecar.
+5. **Quiet room** (`scan_noise_profile`, speech level handed over from 4, selected profile): floor dBA and dBFS, SNR; PASS/CAUTION/WARN/REJECT; writes `_np.wav` and a JSON sidecar. Runs only after the run's level gate passed, as the platform refuses it before; a new level take, or turning the mic off and on, clears it, since the SNR leans on that take's speech level and the gain may have moved.
 6. **Room reflection** (`analyze_file` with that `_np.wav`, selected profile): RT60 at 1 kHz (T20), clap count, r²; pass/production/borderline/reject/error.
 7. **Ceiling:** noise WARN or REJECT caps 2, CAUTION 3; RT60 borderline or reject caps 2, production 3; lower wins. Device: 2 when the browser self-reports mobile. Result `min(format, environment, device)`, named Reject / Lo-fi / Good / Hi-fi. On a gate failure (level FAIL, noise REJECT, RT60 reject or error) the platform assigns no tier: the summary says "no ceiling, fix this and re-run", numbers stay visible, the would-be cap is greyed (D3).
 
@@ -32,7 +32,7 @@ After `getUserMedia` with the three flags false, re-apply `autoGainControl:false
 
 ## 6. Profile selector
 
-Default **Platform Band**, the ruled policy (noise reject below 20 dB SNR, WARN below 48, CAUTION below 55; RT60 0.25 / 0.55 / 0.90 s, `dry_room_pass`, r² at or above 0.85). Alternates: the cores' built-in defaults (noise reject below 38; RT60 Strict 0.25 / 0.50, r² 0.95), Strict, Forgiving, and a user-supplied yaml via a file picker that never uploads. Every result stamps `profile_name` and `config_sha256` per core, the platform's AB-6 stamp. The level check has no profile; its thresholds sit in the core's `DEFAULT_CONFIG`, stamped by that config's sha.
+One selector per core, as the platform has one setting per core (`noise_profile_name`, `rt60_profile_name`). Default **Platform Band** on both, the ruled policy (noise reject below 20 dB SNR, WARN below 48, CAUTION below 55; RT60 0.25 / 0.55 / 0.90 s, `dry_room_pass`, r² at or above 0.85). Quiet room alternate: **Default**, the noise core's built-in (reject below 38). Room reflection alternates: **Strict** (0.25 / 0.50 s, r² 0.95), which is also the RT60 core's built-in, and **Forgiving** (0.42 / 0.80 s, r² 0.95). There is no noise Strict or Forgiving, here or on the platform, and none is invented. Either selector also takes a user-supplied yaml via a file picker that never uploads: the core's own `load_config` merges it over the built-in config, after two checks of RecQC's own, that it sets `profile_name` and carries the core's section (`snr` for noise, `gate` for RT60), so no yaml runs under a name that is not its own. Changing a profile re-scores the run's takes already scored (same takes, same gain). Every result stamps `profile_name` and `config_sha256` per core, the platform's AB-6 stamp. The level check has no profile; its thresholds sit in the core's `DEFAULT_CONFIG`, stamped by that config's sha.
 
 ## 7. Noise-profile save
 
