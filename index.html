@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RecQC Standalone</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#171719" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f9fafb" media="(prefers-color-scheme: light)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%238a8c92%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%3E%3Crect%20x%3D%228.5%22%20y%3D%222.5%22%20width%3D%227%22%20height%3D%2212%22%20rx%3D%223.5%22%20fill%3D%22%234a8ad6%22%20stroke%3D%22%234a8ad6%22%2F%3E%3Cpath%20d%3D%22M5%2011.5a7%207%200%200%200%2014%200%22%2F%3E%3Cpath%20d%3D%22M12%2018.5v3M8.5%2021.5h7%22%2F%3E%3C%2Fsvg%3E">
   <style>
     /* The page's two faces, vendored in fonts/ (design note D2: nothing loads from the network). */
@@ -459,6 +462,28 @@
       else if (pending.has(data.id)) { pending.get(data.id)(data); pending.delete(data.id); }
     };
     worker.onerror = (e) => engineFailed(e.message || "the worker did not load");
+
+    // ---- The offline copy (design note section 2): sw.js keeps the page, the runtime and
+    // the fonts, so the installed app runs with the network off. It registers once the
+    // engine is up, so its downloads revalidate what the engine just fetched instead of
+    // fetching it all again. Hosted it always registers; on localhost only with ?sw or
+    // in the installed app (which opens without ?sw), so the build loop in a tab never
+    // runs from a cache, and there a leftover one is removed.
+    const SW_WANTED = !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) || params.has("sw")
+      || matchMedia("(display-mode: standalone)").matches;
+    // Resolves once a copy is active; rejects when the one installing is discarded, which
+    // is how a failed install ends (navigator.serviceWorker.ready would wait forever).
+    const installed = (reg) => reg.active ? reg : new Promise((resolve, reject) => {
+      const w = reg.installing || reg.waiting;
+      w.addEventListener("statechange", () => {
+        if (w.state === "activated") resolve(reg);
+        else if (w.state === "redundant") reject(new Error("its install failed (see sw.js in DevTools)"));
+      });
+    });
+    const offlineCopy = !("serviceWorker" in navigator) ? Promise.reject(new Error("this browser offers no service worker here"))
+      : SW_WANTED ? engineUp.then(() => navigator.serviceWorker.register("./sw.js")).then(installed)
+      : navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((r) => r.unregister()))).then(() => null);
+    offlineCopy.catch(() => {});
 
     // One request to the worker; resolves with its reply (see app/recqc_worker.mjs).
     function request(op, fields, transfer = []) {
@@ -1608,7 +1633,19 @@
     const caps_on_rungs = (cl) => [cl.components.format.cap, cl.components.environment.known ? cl.components.environment.cap : null,
                                    cl.components.device.cap].filter((c) => c != null);
     async function selftest() {
-      const done = (line) => { document.title = line; $("engine").textContent = line; };
+      const show = (line) => { document.title = line; $("engine").textContent = line; };
+      // With ?sw a pass waits for the offline copy and names it, and says whether this
+      // page came from it, so tests/headless_capture.py --offline can take the server
+      // away and open the page again.
+      const done = (line) => {
+        if (!(params.has("sw") && line.startsWith("SELFTEST PASS"))) return show(line);
+        offlineCopy.then(async () => {
+          const name = (await caches.keys()).find((n) => n.startsWith("recqc-"));
+          const files = name ? (await (await caches.open(name)).keys()).length : 0;
+          show(`${line}; offline copy ${name} (${files} files)` +
+               (navigator.serviceWorker.controller ? "; served from the offline copy" : ""));
+        }, (e) => show("SELFTEST FAIL: the offline copy did not install: " + String(e.message || e)));
+      };
       try {
         await engineUp;
         // The phrase is the user's to rewrite, and goes back to the default on request.

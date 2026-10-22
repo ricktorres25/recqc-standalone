@@ -20,12 +20,19 @@
 #   --tone (M2)  Chrome's own synthetic tone. The level take is scored; a tone can fairly
 #       fail the level gate, and then the quiet room does not run (the platform's order).
 #
+# --offline (M5) checks the offline copy, on the tone. The page opens with ?sw, so it
+# registers sw.js on this local server, and its pass waits for the copy: the cache must
+# be named for sw.js's VERSION and hold every file on its list. Then the server is shut
+# and the page opened again in a new tab: it must load, boot the engine, score a take and
+# pass with the network gone, and say it was served from the offline copy. The server
+# sends Cache-Control: no-store, so Chrome's HTTP cache cannot stand in for the copy.
+#
 # What a pass shows: the module worker boots, the lifted capture code runs in a real
 # browser, and captured takes come back scored by the cores. What it cannot show: a real
 # mic, a real room, the folder picker, or how Chrome treats your interface; those are
 # checked by hand.
 #
-# Run:   python3 tests/headless_capture.py [--tone] [--corpus <dir>] [--chrome <path>] [--timeout 180]
+# Run:   python3 tests/headless_capture.py [--tone | --offline] [--corpus <dir>] [--chrome <path>] [--timeout 180]
 # Exit:  0 pass, 1 fail, 2 not run (Chrome or the corpus not found)
 import argparse
 import functools
@@ -39,12 +46,16 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 import wave
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+sys.path.insert(0, str(REPO / "py"))
+import build_precache  # noqa: E402
+
+CHROME ="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 CORPUS = REPO.parent / "Screening Pipeline" / "Testing corpus"
 # The page's ?selftest=full timing (index.html, SELFTEST_TIMES): speech must cover the
 # level take, room tone the room-tone take, and the claps start after it; room tone
@@ -64,17 +75,48 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-def page_title(devtools_port):
-    """The title of the selftest page, or "" while it has none yet."""
+class NoStoreHandler(QuietHandler):
+    """--offline: nothing goes into Chrome's HTTP cache, so only the offline copy is left."""
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+
+def selftest_target(devtools_port, target_id=None):
+    """The selftest page's DevTools target once its title holds a result (that tab only,
+    if target_id is given), else None."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{devtools_port}/json/list", timeout=2) as r:
             targets = json.load(r)
     except (OSError, ValueError):
-        return ""   # Chrome is still starting
+        return None   # Chrome is still starting
     for t in targets:
-        if t.get("type") == "page" and t.get("title", "").startswith("SELFTEST"):
-            return html.unescape(t["title"])   # the endpoint escapes the title as HTML
-    return ""
+        if t.get("type") == "page" and t.get("title", "").startswith("SELFTEST") \
+                and target_id in (None, t.get("id")):
+            return t
+    return None
+
+
+def wait_title(devtools_port, timeout, target_id=None):
+    """(title, target id), or ("", None) if no result came within timeout seconds."""
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < timeout:
+        time.sleep(0.5)
+        t = selftest_target(devtools_port, target_id)
+        if t:
+            return html.unescape(t["title"]), t["id"]   # the endpoint escapes the title as HTML
+    return "", None
+
+
+def reopen(devtools_port, url, old_id):
+    """Open url in a new tab, then close the old one. Returns the new tab's target id."""
+    # Quoted, or the endpoint would take the page's own & as its own query's.
+    new = urllib.request.Request(f"http://127.0.0.1:{devtools_port}/json/new?{urllib.parse.quote(url, safe='')}",
+                                 method="PUT")
+    with urllib.request.urlopen(new, timeout=5) as r:
+        new_id = json.load(r)["id"]
+    urllib.request.urlopen(f"http://127.0.0.1:{devtools_port}/json/close/{old_id}", timeout=5).close()
+    return new_id
 
 
 def read_frames(path):
@@ -147,9 +189,11 @@ def build_fake_audio(corpus, dest):
 def main():
     ap = argparse.ArgumentParser(description="The page path in headless Chrome with a fake mic")
     ap.add_argument("--tone", action="store_true", help="use Chrome's own tone (the M2 path)")
+    ap.add_argument("--offline", action="store_true",
+                    help="on the tone, check the offline copy: install it, shut the server, open again")
     ap.add_argument("--corpus", default=str(CORPUS))
     ap.add_argument("--chrome", default=CHROME)
-    ap.add_argument("--timeout", type=float, default=180.0, help="seconds to wait for a result")
+    ap.add_argument("--timeout", type=float, default=180.0, help="seconds to wait for each result")
     args = ap.parse_args()
     if not Path(args.chrome).exists():
         print(f"NOT RUN  Chrome not found at {args.chrome}")
@@ -157,7 +201,12 @@ def main():
 
     scratch = Path(tempfile.mkdtemp(prefix="recqc-chrome-"))
     flags, url_query = [], "selftest"
-    if not args.tone:
+    if args.offline:
+        entries = build_precache.precache()
+        copy = f"offline copy recqc-{build_precache.version(entries)} ({len(entries)} files)"
+        url_query = "selftest&sw"
+        print(f"Fake mic: Chrome's tone; expecting the {copy}")
+    elif not args.tone:
         if not Path(args.corpus).is_dir():
             print(f"NOT RUN  corpus not found: {args.corpus} (--tone runs the tone-only path)")
             return 2
@@ -175,9 +224,11 @@ def main():
         print("Fake mic: Chrome's tone")
 
     port, devtools = free_port(), free_port()
+    handler = NoStoreHandler if args.offline else QuietHandler
     server = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", port), functools.partial(QuietHandler, directory=str(REPO)))
+        ("127.0.0.1", port), functools.partial(handler, directory=str(REPO)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    serving = True
     url = f"http://127.0.0.1:{port}/index.html?{url_query}"
     chrome = subprocess.Popen(
         [args.chrome, "--headless=new", f"--remote-debugging-port={devtools}",
@@ -186,26 +237,42 @@ def main():
          "--autoplay-policy=no-user-gesture-required", url],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    title, t0 = "", time.perf_counter()
+    results, t0 = [], time.perf_counter()
     try:
-        while not title and time.perf_counter() - t0 < args.timeout:
-            time.sleep(0.5)
-            title = page_title(devtools)
+        title, tab = wait_title(devtools, args.timeout)
+        results.append(("", title))
+        if args.offline and title.startswith("SELFTEST PASS") and copy in title:
+            server.shutdown()
+            server.server_close()
+            serving = False
+            title, _ = wait_title(devtools, args.timeout, reopen(devtools, url, tab))
+            results.append(("offline", title))
     finally:
         chrome.terminate()
         try:
             chrome.wait(timeout=10)
         except subprocess.TimeoutExpired:
             chrome.kill()
-        server.shutdown()
+        if serving:
+            server.shutdown()
         shutil.rmtree(scratch, ignore_errors=True)
 
-    if not title:
-        print(f"FAIL     no result in the page title within {args.timeout:.0f} s")
-        return 1
-    passed = title.startswith("SELFTEST PASS")
-    print(f"{'PASS' if passed else 'FAIL':8s} {title}  ({time.perf_counter() - t0:.1f} s)")
-    return 0 if passed else 1
+    failed = False
+    for which, title in results:
+        label = f" ({which})" if which else ""
+        if not title:
+            print(f"FAIL     no result in the page title{label} within {args.timeout:.0f} s")
+            failed = True
+            continue
+        passed = title.startswith("SELFTEST PASS")
+        if args.offline and passed and copy not in title:
+            passed, title = False, f"{title}  [expected the {copy}]"
+        if which == "offline" and passed and "served from the offline copy" not in title:
+            passed, title = False, f"{title}  [the page did not come from the offline copy]"
+        print(f"{'PASS' if passed else 'FAIL':8s} {title}{label}")
+        failed = failed or not passed
+    print(f"({time.perf_counter() - t0:.1f} s)")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

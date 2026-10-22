@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "RecQC Standalone",
+  "short_name": "RecQC",
+  "description": "A recording-chain and room check that runs in the browser: level, quiet room and room reflection, scored under the MAD collection platform's policy. Nothing is uploaded.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#171719",
+  "theme_color": "#171719",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
