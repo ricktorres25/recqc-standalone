@@ -2,8 +2,7 @@
 
 A recording-chain and room check that runs in your browser, on your machine. It is the audio side of the MAD collection platform's Rec QC: a level check, a quiet-room measurement and a clap-based room-reflection measurement, scored under the platform's published policy. It prints the audio tier ceiling a take could earn, with every measurement, threshold and margin shown. Nothing is uploaded.
 
-**Status:** complete through M5. The whole check runs in the browser, scored by the platform's own cores. It installs as an app that works with the network off, and every push is checked by CI. [DESIGN_NOTE.md](DESIGN_NOTE.md) is the approved design.
-
+**Status:** Stable. The whole check runs in the browser, scored by the platform's own cores. It installs as an app that works with the network off, and every push is checked by CI. DESIGN_NOTE.md is the approved design.
 ## What it does
 
 - Runs the platform's exact Python measurement cores in the browser (Pyodide), vendored with their source commit and hash.
